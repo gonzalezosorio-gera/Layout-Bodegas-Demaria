@@ -1,9 +1,1 @@
-{
-  "name": "layout-bodega-web",
-  "private": true,
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {"dev":"vite","build":"vite build","preview":"vite preview"},
-  "dependencies": {"@vitejs/plugin-react":"latest","vite":"latest","typescript":"latest","react":"latest","react-dom":"latest","lucide-react":"^0.468.0"},
-  "devDependencies": {}
-}
+{"name":"layout-bodegas-demaria","private":true,"version":"2.0.0","type":"module","scripts":{"dev":"vite","build":"vite build","preview":"vite preview"},"dependencies":{"@supabase/supabase-js":"^2.58.0","@vitejs/plugin-react":"latest","vite":"latest","react":"latest","react-dom":"latest"},"devDependencies":{}}
