@@ -1,0 +1,1 @@
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#fff;color:#4F4F4F}button,input{font:inherit}button{cursor:pointer}@media(max-width:720px){body{font-size:14px}.shell{padding:10px!important}.workspace{display:block!important}.aside{position:static!important;margin-top:12px}}
