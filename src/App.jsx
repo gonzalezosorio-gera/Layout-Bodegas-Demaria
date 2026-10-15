@@ -37,7 +37,7 @@ export default function App() {
           <h1 style={styles.title}>Layout de Bodegas</h1>
           <p style={styles.subtitle}>Gestión visual de ubicaciones, materiales y productos.</p>
         </div>
-        <div style={styles.version}>V3</div>
+        <div style={styles.version}>V3.1</div>
       </header>
 
       <nav style={styles.mainNav} aria-label="Navegación principal">
@@ -83,7 +83,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V3 operativa</span>
+        <span style={styles.status}>V3.1 operativa</span>
       </div>
       {children}
     </section>
@@ -137,14 +137,14 @@ function RacksSelectivos() {
 }
 
 function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell }) {
-  const positions = Array.from({ length: rack.positions }, (_, index) => rack.positions - index);
+  const positions = Array.from({ length: rack.positions }, (_, index) => index + 1);
   const levels = [3, 2, 1];
 
   return (
     <div style={styles.warehouseRack}>
       <div style={styles.rackName}>RACK {rack.number}</div>
       <div style={styles.rackMatrixWrap}>
-        <div style={{ ...styles.rackMatrix, gridTemplateColumns: `repeat(${rack.positions}, 72px)` }}>
+        <div style={{ ...styles.rackMatrix, gridTemplateColumns: `repeat(${rack.positions}, minmax(0, 1fr))` }}>
           {positions.map((position) => <div key={`h-${position}`} style={styles.matrixPositionHeader}>P{position}</div>)}
           {levels.flatMap((level) => positions.map((position) => {
             const key = `${rack.number}-${level}-${position}`;
@@ -223,16 +223,16 @@ function MaestroProductos() {
 
 const rackPlacements = {
   rack1: { gridColumn: "1 / 13", gridRow: "1" },
-  rack2: { gridColumn: "3 / 11", gridRow: "2" },
-  rack3: { gridColumn: "3 / 11", gridRow: "3" },
-  rack4: { gridColumn: "6 / 12", gridRow: "4" },
-  rack5: { gridColumn: "6 / 12", gridRow: "5" },
-  rack6: { gridColumn: "6 / 12", gridRow: "6" },
-  rack7: { gridColumn: "6 / 12", gridRow: "7" },
-  rack8: { gridColumn: "6 / 12", gridRow: "8" },
-  rack9: { gridColumn: "6 / 12", gridRow: "9" },
-  rack10: { gridColumn: "6 / 12", gridRow: "10" },
-  rack11: { gridColumn: "6 / 12", gridRow: "11" },
+  rack2: { gridColumn: "1 / 13", gridRow: "2" },
+  rack3: { gridColumn: "1 / 13", gridRow: "3" },
+  rack4: { gridColumn: "1 / 13", gridRow: "4" },
+  rack5: { gridColumn: "1 / 13", gridRow: "5" },
+  rack6: { gridColumn: "1 / 13", gridRow: "6" },
+  rack7: { gridColumn: "1 / 13", gridRow: "7" },
+  rack8: { gridColumn: "1 / 13", gridRow: "8" },
+  rack9: { gridColumn: "1 / 13", gridRow: "9" },
+  rack10: { gridColumn: "1 / 13", gridRow: "10" },
+  rack11: { gridColumn: "1 / 13", gridRow: "11" },
 };
 
 const styles = {
@@ -260,21 +260,21 @@ const styles = {
   areaDescription: { margin: 0, color: COLORS.muted, fontSize: 14, lineHeight: 1.5 },
   summaryBadge: { padding: "7px 11px", borderRadius: 999, background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800, whiteSpace: "nowrap" },
   canvasScroller: { overflowX: "auto", padding: 18 },
-  warehouseCanvas: { minWidth: 1120, display: "grid", gridTemplateColumns: "repeat(12, 72px)", gridAutoRows: "auto", columnGap: 0, rowGap: 24, alignItems: "start", padding: "2px 0 22px" },
+  warehouseCanvas: { minWidth: 1080, display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoRows: "auto", rowGap: 22, alignItems: "start", padding: "4px 0 22px" },
   rackPlacement: { minWidth: 0 },
-  warehouseRack: { display: "grid", gridTemplateColumns: "74px auto", alignItems: "center" },
-  rackName: { paddingRight: 8, textAlign: "right", fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" },
-  rackMatrixWrap: { display: "flex", alignItems: "stretch" },
-  rackMatrix: { display: "grid", border: "1.5px solid #111", borderRadius: "8px 0 0 8px", overflow: "hidden", background: "#fff" },
-  matrixPositionHeader: { height: 22, display: "grid", placeItems: "center", background: "#F8FAFC", borderRight: "1px solid #A9AEB3", borderBottom: "1px solid #111", fontSize: 10, color: COLORS.text },
-  matrixCell: { width: "100%", height: 32, minWidth: 0, padding: "2px 4px", border: 0, borderRight: "1px solid #111", borderBottom: "1px solid #111", borderRadius: 0, outline: "none", textAlign: "center", color: "#101828", fontSize: 10, boxSizing: "border-box" },
+  warehouseRack: { width: "100%", display: "grid", gridTemplateColumns: "82px minmax(0, 1fr)", alignItems: "center" },
+  rackName: { paddingRight: 12, textAlign: "right", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 900, letterSpacing: ".03em", whiteSpace: "nowrap" },
+  rackMatrixWrap: { width: "100%", display: "flex", alignItems: "stretch" },
+  rackMatrix: { width: "calc(100% - 64px)", display: "grid", border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: "12px 0 0 12px", overflow: "hidden", background: "#fff", boxShadow: "0 5px 16px rgba(0,154,155,.09)" },
+  matrixPositionHeader: { height: 28, display: "grid", placeItems: "center", background: COLORS.turquoise, color: "#FFFFFF", borderRight: "1px solid rgba(255,255,255,.38)", borderBottom: `1px solid ${COLORS.turquoiseDark}`, fontSize: 11, fontWeight: 900 },
+  matrixCell: { width: "100%", height: 36, minWidth: 0, padding: "3px 4px", border: 0, borderRight: `1px solid ${COLORS.turquoiseDark}`, borderBottom: `1px solid ${COLORS.turquoiseDark}`, borderRadius: 0, outline: "none", textAlign: "center", color: "#101828", fontSize: 10, fontWeight: 700, boxSizing: "border-box" },
   matrixCellActive: { boxShadow: `inset 0 0 0 2px ${COLORS.turquoise}`, zIndex: 1 },
   levelThree: { background: "#DDF2F6" },
   levelTwo: { background: "#F9E8DF" },
   levelOne: { background: "#EEF4E5" },
-  levelLabelsColumn: { width: 58, flex: "0 0 58px", display: "grid", gridTemplateRows: "22px repeat(3,32px)", border: "1.5px solid #111", borderLeft: 0, borderRadius: "0 8px 8px 0", overflow: "hidden" },
-  levelSpacer: { background: "#F8FAFC", borderBottom: "1px solid #111" },
-  matrixLevelLabel: { display: "grid", placeItems: "center", borderBottom: "1px solid #111", background: "#fff", color: COLORS.text, fontSize: 10, whiteSpace: "nowrap" },
+  levelLabelsColumn: { width: 64, flex: "0 0 64px", display: "grid", gridTemplateRows: "28px repeat(3,36px)", border: `2px solid ${COLORS.turquoiseDark}`, borderLeft: 0, borderRadius: "0 12px 12px 0", overflow: "hidden", boxShadow: "0 5px 16px rgba(0,154,155,.09)" },
+  levelSpacer: { background: COLORS.turquoise, borderBottom: `1px solid ${COLORS.turquoiseDark}` },
+  matrixLevelLabel: { display: "grid", placeItems: "center", borderBottom: `1px solid ${COLORS.turquoiseDark}`, background: "#F7FFFF", color: COLORS.turquoiseDark, fontSize: 10, fontWeight: 800, whiteSpace: "nowrap" },
   placeholder: { minHeight: 220, padding: 28, display: "flex", alignItems: "flex-start", gap: 16, border: `1px dashed ${COLORS.border}`, borderRadius: 14, background: "#FBFDFE" },
   placeholderCode: { width: 50, height: 50, flex: "0 0 50px", display: "grid", placeItems: "center", borderRadius: 14, background: COLORS.turquoise, color: "#fff", fontWeight: 850 },
   pending: { marginTop: 18, color: COLORS.turquoiseDark, fontSize: 13, fontWeight: 750 },
