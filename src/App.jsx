@@ -1,80 +1,281 @@
-import React,{useEffect,useMemo,useState}from"react";
-import{createClient}from"@supabase/supabase-js";
+import React, { useState } from "react";
 
-const P={p:"#00C1C2",h:"#00A9AA",d:"#4F4F4F",l:"#A6A6A6"};
-const sb=createClient(import.meta.env.VITE_SUPABASE_URL,import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-const cfg={1:12,2:8,3:8,4:6,5:6,6:6,7:6,8:6,9:6,10:6,11:6};
-const W2_STREETS=[
- ['Sector 1 · Portón principal','CALLE 1','20102432',42],['Sector 1 · Portón principal','CALLE 2','20102432',42],['Sector 1 · Portón principal','CALLE 3','20103258',40],['Sector 1 · Portón principal','CALLE 4','20103258',40],['Sector 1 · Portón principal','CALLE 5','20103258',40],['Sector 1 · Portón principal','CALLE 6','20103258',20],['Sector 1 · Portón principal','CALLE 7','20103258',20],['Sector 1 · Portón principal','CALLE 8','20103244',20],['Sector 1 · Portón principal','CALLE 9','20103244',20],['Sector 1 · Portón principal','CALLE 10','20103243',20],['Sector 1 · Portón principal','CALLE 11','20103243',20],['Sector 1 · Portón principal','CALLE 12','20103249',20],
- ['Sector 2 · Portón de emergencia','CALLE 1','20102432',12],['Sector 2 · Portón de emergencia','CALLE 2','20103237',18],['Sector 2 · Portón de emergencia','CALLE 3','20103237',18],['Sector 2 · Portón de emergencia','CALLE 4','20103239',18],['Sector 2 · Portón de emergencia','CALLE 5','20103235',18],['Sector 2 · Portón de emergencia','CALLE 6','20101418',18],['Sector 2 · Portón de emergencia','CALLE 7','20103171',18],['Sector 2 · Portón de emergencia','CALLE 8','20103241',18],['Sector 2 · Portón de emergencia','CALLE 9','20103241',18],['Sector 2 · Portón de emergencia','CALLE 10','20103236',20],['Sector 2 · Portón de emergencia','CALLE 11','20103236',20],['Sector 2 · Portón de emergencia','CALLE 12','20103248',16],['Sector 2 · Portón de emergencia','CALLE 13','20103248',16],
- ['Sector 3 · Portón gerencia','CALLE 1','20103238',9],['Sector 3 · Portón gerencia','CALLE 2','20103238',9],['Sector 3 · Portón gerencia','CALLE 3','20103238',9],['Sector 3 · Portón gerencia','CALLE 4','20103260',12],['Sector 3 · Portón gerencia','CALLE 5','20103260',14],['Sector 3 · Portón gerencia','CALLE 6','20103260',14],['Sector 3 · Portón gerencia','CALLE 7','20103260',14],['Sector 3 · Portón gerencia','CALLE 8','20103260',10],
- ['Sector 4 · Racks Drive In','CALLE 1','20103266',10],['Sector 4 · Racks Drive In','CALLE 2','20103266',10],['Sector 4 · Racks Drive In','CALLE 3','20103106',10],['Sector 4 · Racks Drive In','CALLE 4','20103109',10],['Sector 4 · Racks Drive In','CALLE 5','20103109',10],['Sector 4 · Racks Drive In','CALLE 6','20103261',10],['Sector 4 · Racks Drive In','CALLE 7','20103261',10],['Sector 4 · Racks Drive In','CALLE 8','20103261',10]
-].map((x,i)=>({sector:x[0],calle:x[1],sku:x[2],pos:x[3],code:`W2-${String(i+1).padStart(2,"0")}`}));
-const uiR=(r,p,n)=>`R${r}-P${p}-N${n}`;
-const dbR=(r,p,n)=>`R${String(r).padStart(2,"0")}-P${String(p).padStart(2,"0")}-N${String(n).padStart(2,"0")}`;
-const uiD=(c,n,f)=>`D${String(c).padStart(2,"0")}-N${n}-F${f}`;
-const dbD=(c,n,f)=>`D${String(c).padStart(2,"0")}-N${String(n).padStart(2,"0")}-F${String(f).padStart(2,"0")}`;
-function toUi(c){let m=c.match(/^R(\d+)-P(\d+)-N(\d+)$/);if(m)return uiR(+m[1],+m[2],+m[3]);m=c.match(/^D(\d+)-N(\d+)-F(\d+)$/);return m?uiD(+m[1],+m[2],+m[3]):c}
-function toDb(c){let m=c.match(/^R(\d+)-P(\d+)-N(\d+)$/);if(m)return dbR(+m[1],+m[2],+m[3]);m=c.match(/^D(\d+)-N(\d+)-F(\d+)$/);return m?dbD(+m[1],+m[2],+m[3]):c}
-const saveStyle={background:P.p,color:"white",border:0,borderRadius:8,padding:10,fontWeight:700};
+const COLORS = {
+  turquoise: "#00C1C2",
+  turquoiseDark: "#009A9B",
+  background: "#F3F6F8",
+  panel: "#FFFFFF",
+  text: "#172033",
+  muted: "#667085",
+  border: "#D8E0E7",
+};
 
-export default function App(){
- const[tab,setTab]=useState("racks"),[names,setNames]=useState({racks:"Racks 1 al 11",drive:"Drive In · 23 calles"}),[racks,setRacks]=useState({}),[drive,setDrive]=useState({}),[titles,setTitles]=useState({}),[q,setQ]=useState(""),[sel,setSel]=useState(null),[sku,setSku]=useState(""),[status,setStatus]=useState("Conectando...");
- const[session,setSession]=useState(null),[profile,setProfile]=useState(null),[authLoading,setAuthLoading]=useState(true),[email,setEmail]=useState(""),[password,setPassword]=useState(""),[loginError,setLoginError]=useState("");
- const[products,setProducts]=useState([]),[selectedProductSku,setSelectedProductSku]=useState(null);
- const[w2Data,setW2Data]=useState(()=>Object.fromEntries(W2_STREETS.map(x=>[x.code,x.sku])));
- const[view,setView]=useState("layout"),[masterQuery,setMasterQuery]=useState(""),[masterSku,setMasterSku]=useState(null),[masterDraft,setMasterDraft]=useState(""),[masterObservation,setMasterObservation]=useState(""),[masterFilter,setMasterFilter]=useState("all"),[stockImport,setStockImport]=useState(null),[stockImporting,setStockImporting]=useState(false);
- async function loadAllProducts(){const pageSize=1000,all=[];for(let from=0;;from+=pageSize){const{data,error}=await sb.from("products").select("sku,description,stock,units_per_pallet,observation").order("sku",{ascending:true}).range(from,from+pageSize-1);if(error)return{data:null,error};all.push(...(data||[]));if(!data||data.length<pageSize)break}return{data:all,error:null}}
- async function load(){setStatus("Sincronizando...");const[a,b,c]=await Promise.all([sb.from("locations").select("code,location_type,sku"),sb.from("layout_settings").select("setting_key,setting_value"),loadAllProducts()]);if(a.error||b.error||c.error){setStatus("Error: "+(a.error||b.error||c.error).message);return}const r={},d={};a.data.forEach(x=>(x.location_type==="rack"?r:d)[toUi(x.code)]=x.sku||"");setRacks(r);setDrive(d);setProducts(c.data||[]);const s=Object.fromEntries(b.data.map(x=>[x.setting_key,x.setting_value]));setNames({racks:s.tab_racks_name||"Racks 1 al 11",drive:s.tab_drive_name||"Drive In · 23 calles"});setTitles(Object.fromEntries(Array.from({length:23},(_,i)=>{const c=i+1;return[c,s[`drive_title_${String(c).padStart(2,"0")}`]||`Calle ${String(c).padStart(2,"0")}`]})));setStatus("Sincronizado")}
- async function loadProfile(userId){const{data,error}=await sb.from("profiles").select("user_id,display_name,role,active").eq("user_id",userId).single();if(error||!data||!data.active){setProfile(null);if(error)setLoginError("No se pudo cargar el perfil de acceso.");return null}setProfile(data);return data}
- useEffect(()=>{let mounted=true;sb.auth.getSession().then(async({data:{session}})=>{if(!mounted)return;setSession(session);if(session){const p=await loadProfile(session.user.id);if(p)await load()}setAuthLoading(false)});const{data:{subscription}}=sb.auth.onAuthStateChange((event,nextSession)=>{setSession(nextSession);if(event==="SIGNED_OUT"){setProfile(null);setRacks({});setDrive({});setSel(null);setStatus("Desconectado")}});return()=>{mounted=false;subscription.unsubscribe()}},[]);
- async function signIn(e){e.preventDefault();setLoginError("");setAuthLoading(true);const{data,error}=await sb.auth.signInWithPassword({email:email.trim(),password});if(error){setLoginError("Correo o contraseña incorrectos.");setAuthLoading(false);return}const p=await loadProfile(data.user.id);if(!p){await sb.auth.signOut();setLoginError("La cuenta no tiene un perfil activo.");setAuthLoading(false);return}setSession(data.session);await load();setPassword("");setAuthLoading(false)}
- async function signOut(){await sb.auth.signOut()}
- const active=tab==="racks"?racks:tab==="drive"?drive:w2Data;
- const locationsBySku=useMemo(()=>{const map={};for(const [key,value] of Object.entries({...racks,...drive})){const sku=String(value||"").trim();if(sku)(map[sku]||(map[sku]=[])).push(key)}return map},[racks,drive]);
- const selectedProduct=useMemo(()=>products.find(p=>String(p.sku)===String(selectedProductSku))||null,[products,selectedProductSku]);
- const masterProducts=useMemo(()=>{const term=masterQuery.trim().toLowerCase();return products.filter(p=>{const locs=locationsBySku[String(p.sku)]||[],upp=Number(p.units_per_pallet||0),stock=Number(p.stock||0),pallets=upp?stock/upp:null,diff=pallets===null?null:pallets-locs.length;const matches=!term||String(p.sku).toLowerCase().includes(term)||String(p.description||"").toLowerCase().includes(term);if(!matches)return false;if(masterFilter==="stock")return stock>0;if(masterFilter==="nostock")return stock===0;if(masterFilter==="pending")return !upp;if(masterFilter==="located")return locs.length>0;if(masterFilter==="unlocated")return locs.length===0;if(masterFilter==="deficit")return diff!==null&&diff>0;return true})},[products,masterQuery,masterFilter,locationsBySku]);
- const masterProduct=useMemo(()=>products.find(p=>String(p.sku)===String(masterSku))||masterProducts[0]||null,[products,masterProducts,masterSku]);
- useEffect(()=>{if(!session||!profile)return;const isEditable=el=>el&&(el.tagName==="INPUT"||el.tagName==="TEXTAREA"||el.isContentEditable);const onCopy=e=>{if(isEditable(document.activeElement)||!sel)return;const value=active[sel]||"";if(!value)return;e.preventDefault();e.clipboardData?.setData("text/plain",value)};const onPaste=async e=>{if(isEditable(document.activeElement)||!sel||profile.role==="viewer")return;const value=e.clipboardData?.getData("text/plain")?.trim();if(!value)return;e.preventDefault();setSku(value);await updateSku(value)};const onKey=async e=>{if(isEditable(document.activeElement)||!sel||profile.role==="viewer")return;if(e.key==="Delete"||e.key==="Backspace"){e.preventDefault();setSku("");await updateSku("")}};document.addEventListener("copy",onCopy);document.addEventListener("paste",onPaste);document.addEventListener("keydown",onKey);return()=>{document.removeEventListener("copy",onCopy);document.removeEventListener("paste",onPaste);document.removeEventListener("keydown",onKey)}},[session,profile,sel,active]);
- const hits=useMemo(()=>new Set(Object.entries(active).filter(([k,v])=>q&&(k.toLowerCase().includes(q.toLowerCase())||String(v).includes(q))).map(([k])=>k)),[active,q]);
- const occupancy=useMemo(()=>{const total=tab==="racks"?Object.values(cfg).reduce((s,n)=>s+n*3,0):tab==="drive"?23*3*5:W2_STREETS.reduce((s,x)=>s+x.pos,0);const filled=Object.values(active).filter(v=>String(v||"").trim()!=="").length;return{total,filled,free:Math.max(0,total-filled)}},[active,tab]);
- const info=useMemo(()=>{const term=q.trim();if(!term)return null;const matches=Object.entries(active).filter(([,v])=>String(v).toLowerCase()===term.toLowerCase());const areas=[...new Set(matches.map(([k])=>{const d=k.match(/^D(\d+)-/),r=k.match(/^R(\d+)-/);return d?`Calle ${d[1]}`:r?`Rack ${r[1]}`:k}))];return{count:matches.length,areas}},[active,q]);
- const choose=k=>{const value=active[k]||"";setSel(k);setSku(value);setSelectedProductSku(value||null)};
- async function ensureProduct(v){if(!v)return null;const x=await sb.from("products").upsert({sku:v},{onConflict:"sku",ignoreDuplicates:true});return x.error}
- async function updateSku(v){setStatus("Guardando...");const productError=await ensureProduct(v);if(productError){setStatus("Error: "+productError.message);return}const x=await sb.from("locations").update({sku:v||null,updated_at:new Date().toISOString()}).eq("code",toDb(sel));if(x.error)setStatus("Error: "+x.error.message);else await load()}
- async function setting(k,v){const x=await sb.from("layout_settings").upsert({setting_key:k,setting_value:v,updated_at:new Date().toISOString()},{onConflict:"setting_key"});setStatus(x.error?"Error: "+x.error.message:"Sincronizado")}
- async function saveCell(key,value){setStatus("Guardando...");const productError=await ensureProduct(value);if(productError){setStatus("Error: "+productError.message);return}const x=await sb.from("locations").update({sku:value||null,updated_at:new Date().toISOString()}).eq("code",toDb(key));if(x.error)setStatus("Error: "+x.error.message);else await load()}
- async function saveW2Cell(code,value){if(!["admin","editor"].includes(profile?.role))return;setStatus("Guardando...");setW2Data(prev=>({...prev,[code]:value}));setSel(code);setSku(value);setSelectedProductSku(value||null);setStatus("Sincronizado")}
- async function savePallet(sku,value){if(profile?.role!=="admin")return;const parsed=value===""?null:Number(value);if(parsed!==null&&(!Number.isFinite(parsed)||parsed<=0)){setStatus("Error: palletizado inválido");return}setStatus("Guardando...");const{data,error}=await sb.from("products").update({units_per_pallet:parsed,updated_at:new Date().toISOString()}).eq("sku",sku).select("sku,description,stock,units_per_pallet,observation").single();if(error||!data){setStatus("Error: "+(error?.message||"No se actualizó el producto"));return}setProducts(prev=>prev.map(p=>String(p.sku)===String(sku)?{...p,...data}:p));setMasterSku(data.sku);setMasterDraft(data.units_per_pallet??"");if(String(selectedProductSku)===String(sku))setSelectedProductSku(data.sku);setStatus("Sincronizado")}
- async function saveObservation(sku,value){if(!["admin","editor"].includes(profile?.role))return;setStatus("Guardando...");const{data,error}=await sb.from("products").update({observation:value,updated_at:new Date().toISOString()}).eq("sku",sku).select("sku,description,stock,units_per_pallet,observation").single();if(error||!data){setStatus("Error: "+(error?.message||"No se actualizó la observación"));return}setProducts(prev=>prev.map(p=>String(p.sku)===String(sku)?{...p,...data}:p));setMasterSku(data.sku);setMasterObservation(data.observation||"");setStatus("Sincronizado")}
+const RACKS = [
+  { number: 1, positions: 12, className: "rack1" },
+  { number: 2, positions: 8, className: "rack2" },
+  { number: 3, positions: 8, className: "rack3" },
+  { number: 4, positions: 6, className: "rack4" },
+  { number: 5, positions: 6, className: "rack5" },
+  { number: 6, positions: 6, className: "rack6" },
+  { number: 7, positions: 6, className: "rack7" },
+  { number: 8, positions: 6, className: "rack8" },
+  { number: 9, positions: 6, className: "rack9" },
+  { number: 10, positions: 6, className: "rack10" },
+  { number: 11, positions: 6, className: "rack11" },
+];
 
- function parseStockNumber(value){const t=String(value??"").trim();if(!t)return 0;const normalized=t.includes(",")?t.replace(/\./g,"").replace(",","."):t;const n=Number(normalized);return Number.isFinite(n)?n:0}
- async function prepareStockFile(file){if(profile?.role!=="admin")return;try{const buffer=await file.arrayBuffer();let text;try{text=new TextDecoder("utf-16le").decode(buffer)}catch{text=new TextDecoder().decode(buffer)}let lines=text.replace(/^\uFEFF/,"").split(/\r?\n/).filter(Boolean);if(!lines.length)throw new Error("Archivo vacío");let headers=lines[0].split("\t").map(x=>x.trim());let ix={};headers.forEach((h,i)=>ix[h]=i);for(const required of ["Material","Descripción del material","Libre utilización","En control calidad","Bloqueado"]){if(ix[required]===undefined)throw new Error(`Falta la columna: ${required}`)}const map=new Map();for(const line of lines.slice(1)){const r=line.split("\t"),sku=String(r[ix["Material"]]||"").trim();if(!sku)continue;const description=String(r[ix["Descripción del material"]]||"").trim();const stock=parseStockNumber(r[ix["Libre utilización"]])+parseStockNumber(r[ix["En control calidad"]])+parseStockNumber(r[ix["Bloqueado"]]);const prev=map.get(sku);if(prev){prev.stock+=stock;if(!prev.description&&description)prev.description=description}else map.set(sku,{sku,description,stock})}const parsed=[...map.values()].map(x=>({...x,stock:Math.round(x.stock*1000)/1000}));setStockImport({fileName:file.name,products:parsed,withStock:parsed.filter(x=>x.stock>0).length})}catch(err){setStatus("Error: "+(err?.message||"No se pudo leer el archivo"));setStockImport(null)}}
- async function confirmStockImport(){if(profile?.role!=="admin"||!stockImport)return;setStockImporting(true);setStatus("Actualizando stock...");const{data,error}=await sb.functions.invoke("import-stock",{body:{products:stockImport.products}});if(error||!data?.ok){setStatus("Error: "+(data?.error||error?.message||"No se pudo actualizar el stock"));setStockImporting(false);return}setStockImport(null);await load();setStatus(`Sincronizado · ${data.processed} SKU actualizados`);setStockImporting(false)}
- function goToLocation(key){const target=key.startsWith("D")?"drive":"racks";setTab(target);setSel(key);const value=(target==="drive"?drive:racks)[key]||"";setSku(value);setSelectedProductSku(value||selectedProductSku);setTimeout(()=>document.getElementById(`location-${key}`)?.scrollIntoView({behavior:"smooth",block:"center",inline:"center"}),100)}
- if(authLoading)return <div style={{minHeight:"100vh",display:"grid",placeItems:"center",fontFamily:"Inter,system-ui,sans-serif",color:P.d}}>Cargando acceso...</div>;
- if(!session||!profile)return <Login email={email} setEmail={setEmail} password={password} setPassword={setPassword} error={loginError} onSubmit={signIn}/>;
- return <div className="shell" style={{padding:20}}><header style={{background:P.d,color:"white",borderRadius:16,overflow:"hidden"}}><div style={{padding:20,display:"flex",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}><div><small style={{color:P.p,fontWeight:800}}>BODEGA · MAPA OPERATIVO</small><h1 style={{margin:"6px 0"}}>Layout interactivo</h1><div style={{fontSize:12,color:status==="Sincronizado"?P.p:"#ddd"}}>● {status}</div><div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,fontSize:12}}><strong>{profile.display_name||"Usuario"}</strong><span style={{color:P.p,textTransform:"uppercase"}}>{profile.role}</span><button onClick={signOut} style={{border:"1px solid #777",background:"transparent",color:"white",borderRadius:7,padding:"5px 8px"}}>Cerrar sesión</button></div></div><div style={{width:400,maxWidth:"100%"}}><input value={q} onChange={e=>{const value=e.target.value;setQ(value);const exact=products.find(p=>String(p.sku).toLowerCase()===value.trim().toLowerCase());setSelectedProductSku(exact?.sku||null)}} placeholder="Buscar SKU o ubicación" style={{width:"100%",padding:12,borderRadius:10,border:0}}/>{info&&<div style={{background:"#3f3f3f",padding:10,borderRadius:10,marginTop:6,fontSize:12,color:"white"}}><b style={{color:P.p}}>{info.count} posiciones</b><br/>{info.count?info.areas.join(", "):"Sin posiciones asignadas"}</div>}</div></div><div style={{padding:12,borderTop:"1px solid #666",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{["racks","drive"].map(t=><div key={t} style={{border:`1px solid ${tab===t?P.p:"#777"}`,padding:6,borderRadius:10}}><button onClick={()=>{setTab(t);setSel(null);setQ("")}} style={{background:tab===t?P.p:"#666",color:"white",border:0,borderRadius:7,padding:8}}>{tab===t?"Activa":"Abrir"}</button>{profile.role==="admin"?<input value={names[t]} onChange={e=>setNames(x=>({...x,[t]:e.target.value}))} onBlur={e=>setting(t==="racks"?"tab_racks_name":"tab_drive_name",e.target.value)} style={{background:"transparent",color:"white",border:0,outline:0,fontWeight:700,padding:8,width:190}}/>:<span style={{fontWeight:700,padding:"8px",display:"inline-block",minWidth:190}}>{names[t]}</span>}</div>)}<div style={{border:`1px solid ${tab==="warehouse2"?P.p:"#777"}`,padding:6,borderRadius:10}}><button onClick={()=>{setTab("warehouse2");setSel(null);setQ("")}} style={{background:tab==="warehouse2"?P.p:"#666",color:"white",border:0,borderRadius:7,padding:8}}>{tab==="warehouse2"?"Activa":"Abrir"}</button><span style={{fontWeight:700,padding:"8px",display:"inline-block",minWidth:150}}>Bodega 2</span></div></div><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}><button onClick={()=>{setView("master");setMasterQuery("");setMasterSku(null)}} style={{border:"1px solid #777",background:"#555",color:"white",borderRadius:6,padding:"5px 7px",fontSize:10,fontWeight:700}}>▦ Maestro</button><div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap",fontSize:12,fontWeight:700}}><StatDot color="#2F8FA3" label="Total" value={occupancy.total}/><StatDot color="#24538A" label="Tomadas" value={occupancy.filled}/><StatDot color="#82D448" label="Libres" value={occupancy.free}/></div></div></div></header>{view==="layout"?<div className="work" style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 300px",gap:16,marginTop:16}}><main style={{border:"1px solid #ddd",borderRadius:16,padding:16,overflow:"auto"}}>{tab==="racks"?<div style={{minWidth:720}}>{Object.entries(cfg).map(([r,n])=><Rack key={r} r={+r} n={n} data={racks} hits={hits} choose={choose} sel={sel} load={load} setStatus={setStatus} ensureProduct={ensureProduct} role={profile.role} saveCell={saveCell}/>)}</div>:tab==="drive"?<Drive data={drive} hits={hits} choose={choose} sel={sel} titles={titles} setTitles={setTitles} load={load} setStatus={setStatus} setting={setting} ensureProduct={ensureProduct} role={profile.role} saveCell={saveCell}/>:<Warehouse2 data={w2Data} choose={choose} sel={sel} role={profile.role} saveCell={saveW2Cell}/>}</main><aside className="aside" style={{border:"1px solid #ddd",borderRadius:16,padding:18,height:"fit-content",position:"sticky",top:12}}><h3 style={{margin:"0 0 12px"}}>Buscar SKU</h3>{selectedProduct?<SideSkuDetail product={selectedProduct} locations={locationsBySku[String(selectedProduct.sku)]||[]} selectedLocation={sel} onLocationClick={goToLocation}/>:sel&&sku===""?<><div style={{background:P.d,color:"white",padding:12,borderRadius:10,fontWeight:700}}>{sel}</div><p style={{color:P.l,fontSize:12}}>Posición sin SKU asignado.</p></>:<p style={{color:P.l,fontSize:12}}>Escribe un SKU en el buscador superior o selecciona una celda con SKU para ver aquí el detalle del producto.</p>}</aside></div>:<MasterProducts products={masterProducts} selected={masterProduct} query={masterQuery} setQuery={setMasterQuery} setSelected={setMasterSku} role={profile.role} locationsBySku={locationsBySku} draft={masterDraft} setDraft={setMasterDraft} observation={masterObservation} setObservation={setMasterObservation} savePallet={savePallet} saveObservation={saveObservation} filter={masterFilter} setFilter={setMasterFilter} goLocation={goToLocation} onBack={()=>setView("layout")} stockImport={stockImport} stockImporting={stockImporting} prepareStockFile={prepareStockFile} confirmStockImport={confirmStockImport} cancelStockImport={()=>setStockImport(null)}/>}</div>}
+export default function App() {
+  const [mainTab, setMainTab] = useState("b70");
+  const [sub70, setSub70] = useState("racks");
+  const [sub60, setSub60] = useState("envases");
 
-function MasterProducts({products,selected,query,setQuery,setSelected,role,locationsBySku,draft,setDraft,observation,setObservation,savePallet,saveObservation,filter,setFilter,goLocation,onBack,stockImport,stockImporting,prepareStockFile,confirmStockImport,cancelStockImport}){const fmt=n=>new Intl.NumberFormat("es-CL",{maximumFractionDigits:3}).format(Number(n||0));const filters=[['all','Todos'],['stock','Con stock'],['nostock','Sin stock'],['pending','Pend. palletizado'],['located','Con ubicaciones'],['unlocated','Sin ubicaciones'],['deficit','Déficit posiciones']];return <section style={{marginTop:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"end",gap:12,flexWrap:"wrap",marginBottom:10}}><div><small style={{color:P.p,fontWeight:900}}>ADMINISTRACIÓN DE DATOS</small><h2 style={{margin:"4px 0"}}>Maestro de Productos</h2><span style={{fontSize:12,color:P.l}}>{products.length} productos</span></div><div style={{display:"flex",gap:8,alignItems:"center"}}>{role==="admin"&&<label style={{background:P.d,color:"white",borderRadius:7,padding:"8px 10px",fontSize:10,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>Actualizar stock<input type="file" accept=".xls,.txt,.tsv" onChange={e=>{const f=e.target.files?.[0];if(f)prepareStockFile(f);e.target.value=""}} style={{display:"none"}}/></label>}<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar SKU o descripción" style={{width:340,maxWidth:"100%",padding:10,border:`1px solid ${P.l}`,borderRadius:8}}/><button onClick={onBack} style={{background:P.p,color:"white",border:0,borderRadius:7,padding:"8px 10px",fontSize:11,fontWeight:700}}>Volver al Layout</button></div></div>{stockImport&&<div style={{border:`1px solid ${P.p}`,background:"#F4FFFF",borderRadius:10,padding:12,marginBottom:10}}><div style={{fontSize:10,fontWeight:900,color:P.p}}>ARCHIVO LISTO PARA IMPORTAR</div><div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(100px,1fr))",gap:8,marginTop:8,fontSize:11}}><div><b>Archivo</b><br/>{stockImport.fileName}</div><div><b>SKU encontrados</b><br/>{stockImport.products.length}</div><div><b>Con stock</b><br/>{stockImport.withStock}</div></div><div style={{marginTop:8,fontSize:10,color:P.d}}>Se actualizarán <b>descripción y stock</b>. Se conservarán <b>palletizado, observaciones y ubicaciones</b>.</div><div style={{display:"flex",justifyContent:"flex-end",gap:7,marginTop:9}}><button disabled={stockImporting} onClick={cancelStockImport} style={{border:"1px solid #bbb",background:"white",borderRadius:7,padding:"7px 9px",fontSize:10}}>Cancelar</button><button disabled={stockImporting} onClick={confirmStockImport} style={{border:0,background:P.p,color:"white",borderRadius:7,padding:"7px 10px",fontSize:10,fontWeight:800}}>{stockImporting?"Actualizando...":"Actualizar stock"}</button></div></div>}<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>{filters.map(([key,label])=><button key={key} onClick={()=>setFilter(key)} style={{border:`1px solid ${filter===key?P.p:'#ccc'}`,background:filter===key?P.p:'white',color:filter===key?'white':P.d,borderRadius:7,padding:'6px 9px',fontSize:10,fontWeight:700}}>{label}</button>)}</div><div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 340px",gap:16,alignItems:"start"}}><main style={{background:"white",border:"1px solid #ddd",borderRadius:16,padding:14,overflow:"auto",maxHeight:"72vh"}}><div style={{minWidth:760}}><div style={{display:"grid",gridTemplateColumns:"105px minmax(220px,1fr) 95px 100px 90px 75px 90px",background:P.p,color:"white",fontSize:10,fontWeight:800}}>{["SKU","Descripción","Stock","Un./Pallet","Pallets","Pos.","Diferencia"].map(x=><div key={x} style={{padding:"8px 7px"}}>{x}</div>)}</div>{products.map(p=>{const locs=locationsBySku[String(p.sku)]||[],upp=Number(p.units_per_pallet||0),pallets=upp?Number(p.stock||0)/upp:null,diff=pallets===null?null:pallets-locs.length;return <button key={p.sku} onClick={()=>{setSelected(p.sku);setDraft(p.units_per_pallet??"");setObservation(p.observation||"")}} style={{width:"100%",display:"grid",gridTemplateColumns:"105px minmax(220px,1fr) 95px 100px 90px 75px 90px",border:0,borderBottom:"1px solid #eee",background:selected?.sku===p.sku?"#E8FFFF":"white",padding:0,textAlign:"left",color:P.d}}><MCell bold>{p.sku}</MCell><MCell>{p.description||""}</MCell><MCell right>{fmt(p.stock)}</MCell><MCell right>{upp?fmt(upp):"Pendiente"}</MCell><MCell right>{pallets===null?"-":fmt(pallets)}</MCell><MCell right>{locs.length}</MCell><MCell right>{diff===null?"-":`${diff>0?"+":""}${fmt(diff)}`}</MCell></button>})}</div></main><aside style={{background:"white",border:"1px solid #ddd",borderRadius:16,padding:18,position:"sticky",top:12}}>{selected?<MasterDetail product={selected} role={role} locations={locationsBySku[String(selected.sku)]||[]} draft={draft} setDraft={setDraft} observation={observation} setObservation={setObservation} savePallet={savePallet} saveObservation={saveObservation} goLocation={goLocation}/>:<p style={{color:P.l}}>Sin productos.</p>}</aside></div></section>}
-function MasterDetail({product,role,locations,draft,setDraft,observation,setObservation,savePallet,saveObservation,goLocation}){const fmt=n=>new Intl.NumberFormat("es-CL",{maximumFractionDigits:3}).format(Number(n||0)),upp=Number(product.units_per_pallet||0),pallets=upp?Number(product.stock||0)/upp:null,diff=pallets===null?null:pallets-locations.length,canObs=role==="admin"||role==="editor";return <div><small style={{color:P.p,fontWeight:900}}>PRODUCTO SELECCIONADO</small><h2 style={{margin:"5px 0 2px"}}>{product.sku}</h2><div style={{fontSize:11,color:P.l}}>{product.description||"Sin descripción"}</div><div style={{borderTop:"1px solid #eee",marginTop:12,paddingTop:10}}><MM label="Stock actual" value={fmt(product.stock)}/><div style={{display:"grid",gridTemplateColumns:"1fr 120px",gap:8,alignItems:"center",marginTop:7}}><strong style={{fontSize:11}}>Unidades/pallet</strong>{role==="admin"?<input value={draft} onFocus={()=>draft===""&&setDraft(product.units_per_pallet??"")} onChange={e=>setDraft(e.target.value)} placeholder="Pendiente" style={{padding:8,border:`1px solid ${P.l}`,borderRadius:7,textAlign:"right"}}/>:<strong style={{textAlign:"right",fontSize:12}}>{upp?fmt(upp):"Pendiente"}</strong>}</div><MM label="Pallets equivalentes" value={pallets===null?"-":fmt(pallets)}/><MM label="Posiciones" value={locations.length}/><MM label="Diferencia" value={diff===null?"-":`${diff>0?"+":""}${fmt(diff)}`}/></div><div style={{fontSize:9,fontWeight:900,color:P.l,marginTop:12}}>OBSERVACIÓN</div>{canObs?<><textarea value={observation} onFocus={()=>observation===""&&setObservation(product.observation||"")} onChange={e=>setObservation(e.target.value)} placeholder="Sin observaciones" style={{width:"100%",minHeight:70,boxSizing:"border-box",marginTop:6,padding:8,border:`1px solid ${P.l}`,borderRadius:7,resize:"vertical"}}/><button onClick={()=>saveObservation(product.sku,observation)} style={{width:"100%",marginTop:6,background:P.d,color:"white",border:0,borderRadius:7,padding:8,fontSize:10,fontWeight:800}}>Guardar observación</button></>:<div style={{marginTop:6,padding:8,background:'#f6f6f6',borderRadius:7,fontSize:11}}>{product.observation||"Sin observaciones"}</div>}<div style={{fontSize:9,fontWeight:900,color:P.l,marginTop:12}}>UBICACIONES</div><div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>{locations.map(x=><button key={x} onClick={()=>goLocation(x)} style={{background:"#E8FFFF",border:`1px solid ${P.p}`,borderRadius:6,padding:"4px 6px",fontSize:9,fontWeight:800}}>{x}</button>)}</div>{role==="admin"&&<button onClick={()=>savePallet(product.sku,draft)} style={{width:"100%",marginTop:14,background:P.p,color:"white",border:0,borderRadius:8,padding:10,fontWeight:800}}>Guardar palletizado</button>}</div>}
-function MCell({children,right,bold}){return <div style={{padding:"9px 7px",fontSize:11,textAlign:right?"right":"left",fontWeight:bold?800:500,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{children}</div>}
-function MM({label,value}){return <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",fontSize:11}}><span>{label}</span><strong>{value}</strong></div>}
+  return (
+    <div style={styles.app}>
+      <header style={styles.header}>
+        <div>
+          <p style={styles.eyebrow}>DEMARÍA</p>
+          <h1 style={styles.title}>Layout de Bodegas</h1>
+          <p style={styles.subtitle}>Gestión visual de ubicaciones, materiales y productos.</p>
+        </div>
+        <div style={styles.version}>V3</div>
+      </header>
 
-function SideSkuDetail({product,locations,selectedLocation,onLocationClick}){const stock=Number(product.stock||0),upp=Number(product.units_per_pallet||0),pallets=upp?stock/upp:null,assigned=locations.length,occupied=pallets===null?null:Math.min(assigned,Math.ceil(pallets)),free=occupied===null?null:Math.max(0,assigned-occupied),occupiedPct=occupied===null||!assigned?null:occupied/assigned*100,freePct=free===null||!assigned?null:free/assigned*100;const fmt=n=>new Intl.NumberFormat("es-CL",{maximumFractionDigits:2}).format(Number(n||0));return <div>{selectedLocation&&<div style={{background:P.d,color:"white",padding:10,borderRadius:9,fontWeight:800,marginBottom:10}}>{selectedLocation}</div>}<strong style={{fontSize:16}}>{product.sku}</strong><div style={{fontSize:11,color:P.l,marginTop:2}}>{product.description||"Sin descripción"}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginTop:12}}><SkuMini label="Stock actual" value={fmt(stock)}/><SkuMini label="Un./Pallet" value={upp?fmt(upp):"Pendiente"}/><SkuMini label="Pallets equiv." value={pallets===null?"-":fmt(pallets)}/><SkuMini label="Pos. asignadas" value={assigned}/><SkuMini label="Pos. ocupadas" value={occupied===null?"-":occupied} accent="#24538A"/><SkuMini label="Pos. libres" value={free===null?"-":free} accent="#82D448"/></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginTop:8}}><SkuPercent label="Ubicaciones ocupadas" value={occupiedPct} color="#24538A"/><SkuPercent label="Ubicaciones disponibles" value={freePct} color="#82D448"/></div>{locations.length>0&&<><div style={{fontSize:9,fontWeight:900,color:P.l,marginTop:13}}>UBICACIONES</div><div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>{locations.map((loc,i)=><button key={loc} onClick={()=>onLocationClick(loc)} style={{border:`1px solid ${P.p}`,background:loc===selectedLocation?P.p:occupied!==null&&i>=occupied?"#F4FFE9":"#E8FFFF",color:loc===selectedLocation?"white":P.d,borderRadius:6,padding:"5px 7px",fontSize:9,fontWeight:800}}>{loc}</button>)}</div></>}</div>}
-function SkuMini({label,value,accent}){return <div style={{border:"1px solid #e5e5e5",borderLeft:accent?`4px solid ${accent}`:"1px solid #e5e5e5",borderRadius:7,padding:8}}><div style={{fontSize:9,color:P.l,fontWeight:800}}>{label.toUpperCase()}</div><strong style={{fontSize:12}}>{value}</strong></div>}
-function SkuPercent({label,value,color}){const valid=value!==null&&Number.isFinite(value),pct=valid?Math.max(0,Math.min(100,value)):0;const fmt=n=>new Intl.NumberFormat("es-CL",{maximumFractionDigits:1}).format(n);return <div style={{border:"1px solid #e5e5e5",borderRadius:7,padding:8}}><div style={{fontSize:8,color:P.l,fontWeight:900,minHeight:20}}>{label.toUpperCase()}</div><div style={{display:"flex",alignItems:"center",gap:5,marginTop:4}}><strong style={{fontSize:12}}>{valid?`${fmt(value)}%`:"-"}</strong><div style={{flex:1,height:5,background:"#eee",borderRadius:99,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:color}}/></div></div></div>}
-function Login({email,setEmail,password,setPassword,error,onSubmit}){return <div style={{minHeight:"100vh",background:"#F4F6F6",display:"grid",placeItems:"center",padding:20,fontFamily:"Inter,system-ui,sans-serif"}}><form onSubmit={onSubmit} style={{width:"min(420px,100%)",background:"white",border:"1px solid #ddd",borderRadius:18,padding:28,boxShadow:"0 12px 35px #0002"}}><div style={{color:P.p,fontSize:12,fontWeight:800,letterSpacing:2}}>BODEGAS DEMARIA</div><h1 style={{color:P.d,margin:"8px 0 4px"}}>Acceso al sistema</h1><p style={{color:P.l,marginTop:0}}>Ingresa con tu cuenta autorizada.</p><label style={{display:"block",fontWeight:700,fontSize:12,marginTop:18,color:P.d}}>Correo</label><input type="email" autoComplete="username" required value={email} onChange={e=>setEmail(e.target.value)} style={{width:"100%",padding:12,border:`1px solid ${P.l}`,borderRadius:9,marginTop:6}}/><label style={{display:"block",fontWeight:700,fontSize:12,marginTop:14,color:P.d}}>Contraseña</label><input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} style={{width:"100%",padding:12,border:`1px solid ${P.l}`,borderRadius:9,marginTop:6}}/>{error&&<div style={{marginTop:12,padding:10,borderRadius:8,background:"#FFF1F1",color:"#A33",fontSize:12}}>{error}</div>}<button type="submit" style={{width:"100%",marginTop:18,background:P.p,color:"white",border:0,borderRadius:9,padding:12,fontWeight:800}}>INGRESAR</button></form></div>}
+      <nav style={styles.mainNav} aria-label="Navegación principal">
+        <Tab active={mainTab === "b70"} onClick={() => setMainTab("b70")}>Bodega 70</Tab>
+        <Tab active={mainTab === "b60"} onClick={() => setMainTab("b60")}>Bodega 60</Tab>
+        <Tab active={mainTab === "master"} onClick={() => setMainTab("master")}>Maestro de Productos</Tab>
+      </nav>
 
-function StatDot({color,label,value}){return <div style={{display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}><span style={{width:12,height:12,borderRadius:"50%",background:color,display:"inline-block"}}/><span>{label}: {value}</span></div>}
+      <main style={styles.content}>
+        {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} />}
+        {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} />}
+        {mainTab === "master" && <MaestroProductos />}
+      </main>
+    </div>
+  );
+}
 
-function EditableCell({cellKey,value,selected,onSelect,onSave}){const[editing,setEditing]=useState(false);const[draft,setDraft]=useState(value||"");const open=()=>{setDraft(value||"");setEditing(true);onSelect(cellKey)};const save=()=>{if(!editing)return;onSave(cellKey,draft.trim());setEditing(false)};if(editing)return <input id={`location-${cellKey}`} autoFocus value={draft} onChange={e=>setDraft(e.target.value)} onBlur={save} onKeyDown={e=>{if(e.key==="Enter")save();if(e.key==="Escape"){setEditing(false);setDraft(value||"")}}} style={{width:"100%",height:"100%",minHeight:34,padding:"0 5px",border:`2px solid ${P.p}`,outline:0,background:"#E8FFFF",fontSize:10,fontWeight:800,textAlign:"center",boxSizing:"border-box"}}/>;return <button id={`location-${cellKey}`} onClick={()=>onSelect(cellKey)} onDoubleClick={open} title="Doble clic para editar SKU" style={{width:"100%",height:"100%",minHeight:34,padding:0,border:`1px solid ${P.l}`,background:selected?"#D6FAFA":"white",boxShadow:selected?`inset 0 0 0 2px ${P.p}`:"none",fontSize:10,fontWeight:700}}>{value||"·"}</button>}
+function Tab({ active, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} style={{ ...styles.mainTab, ...(active ? styles.mainTabActive : {}) }}>
+      {children}
+    </button>
+  );
+}
 
-function Rack({r,n,data,hits,choose,sel,load,setStatus,ensureProduct,role,saveCell}){const[bulkSku,setBulkSku]=useState("");const[levels,setLevels]=useState([1,2,3]);const ps=Array.from({length:n},(_,i)=>n-i);const[positions,setPositions]=useState(ps);const[lastAction,setLastAction]=useState(null);const toggle=(list,setList,value)=>setList(list.includes(value)?list.filter(x=>x!==value):[...list,value]);const selectedKeys=()=>{const keys=[];levels.forEach(level=>positions.forEach(pos=>keys.push(uiR(r,pos,level))));return keys};const allRackKeys=()=>{const keys=[];[1,2,3].forEach(level=>ps.forEach(pos=>keys.push(uiR(r,pos,level))));return keys};const capture=keys=>Object.fromEntries(keys.map(k=>[k,data[k]||""]));async function assignBulk(){const value=bulkSku.trim();if(!value||!levels.length||!positions.length)return;setStatus("Guardando...");const productError=await ensureProduct(value);if(productError){setStatus("Error: "+productError.message);return}const keys=selectedKeys(),before=capture(keys);const x=await sb.from("locations").update({sku:value,updated_at:new Date().toISOString()}).in("code",keys.map(toDb));if(x.error){setStatus("Error: "+x.error.message);return}setLastAction({before});setBulkSku("");await load()}async function emptyRack(){setStatus("Guardando...");const keys=allRackKeys(),before=capture(keys);const x=await sb.from("locations").update({sku:null,updated_at:new Date().toISOString()}).in("code",keys.map(toDb));if(x.error){setStatus("Error: "+x.error.message);return}setLastAction({before});await load()}async function undo(){if(!lastAction)return;setStatus("Restaurando...");const results=await Promise.all(Object.entries(lastAction.before).map(([key,value])=>sb.from("locations").update({sku:value||null,updated_at:new Date().toISOString()}).eq("code",toDb(key))));const failed=results.find(x=>x.error);if(failed){setStatus("Error: "+failed.error.message);return}setLastAction(null);await load()}const count=levels.length*positions.length;return <section style={{marginBottom:28}}>{role!=="viewer"&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:8}}><b style={{marginRight:4,fontSize:14,whiteSpace:"nowrap"}}>RACK {r}</b><input value={bulkSku} onChange={e=>setBulkSku(e.target.value)} placeholder="SKU carga masiva" style={{width:165,padding:7,border:`1px solid ${P.l}`,borderRadius:7}}/><span style={{fontSize:10,fontWeight:700}}>NIVEL</span>{[1,2,3].map(x=><button key={x} onClick={()=>toggle(levels,setLevels,x)} style={{background:levels.includes(x)?P.p:"white",color:levels.includes(x)?"white":P.d,border:`1px solid ${P.l}`,borderRadius:5,padding:"5px 7px"}}>N{x}</button>)}<span style={{fontSize:10,fontWeight:700,marginLeft:4}}>POS.</span>{ps.map(x=><button key={x} onClick={()=>toggle(positions,setPositions,x)} style={{background:positions.includes(x)?P.p:"white",color:positions.includes(x)?"white":P.d,border:`1px solid ${P.l}`,borderRadius:5,padding:"5px 7px"}}>P{x}</button>)}<button onClick={assignBulk} disabled={!bulkSku.trim()||!count} style={{...saveStyle,padding:"7px 10px",opacity:!bulkSku.trim()||!count?.45:1}}>Asignar {count}</button><button onClick={emptyRack} style={{background:"white",color:P.h,border:`1px solid ${P.h}`,borderRadius:8,padding:"7px 10px",fontWeight:700}}>Vaciar rack</button><button onClick={undo} disabled={!lastAction} style={{background:lastAction?P.d:"#eee",color:lastAction?"white":P.l,border:0,borderRadius:8,padding:"7px 10px",fontWeight:700}}>Deshacer última modificación</button></div>}<div style={{display:"grid",gridTemplateColumns:"70px minmax(0,1fr) 58px",columnGap:10,alignItems:"end"}}><div>{role==="viewer"&&<div style={{fontWeight:800,fontSize:14,paddingBottom:7}}>RACK {r}</div>}</div><div><div style={{display:"grid",gridTemplateColumns:`repeat(${n},minmax(70px,1fr))`,gap:0}}>{ps.map(p=><div key={p} style={{height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",background:P.p,border:`1px solid ${P.p}`}}>P{p}</div>)}</div>{[3,2,1].map(level=><div key={level} style={{display:"grid",gridTemplateColumns:`repeat(${n},minmax(70px,1fr))`,gap:0,height:38}}>{ps.map(p=>{const k=uiR(r,p,level),v=data[k]||"";return role==="viewer"?<button id={`location-${k}`} key={k} onClick={()=>choose(k)} style={{width:"100%",height:38,padding:0,border:`1px solid ${P.l}`,background:hits.has(k)?"#BFF4F4":sel===k?"#D6FAFA":"white",fontSize:11,fontWeight:700}}>{v||"·"}</button>:<EditableCell key={k} cellKey={k} value={v} selected={sel===k} onSelect={choose} onSave={saveCell}/>})}</div>)}</div><div>{["",3,2,1].map((level,i)=>i===0?<div key="head" style={{height:28}}/>:<div key={level} style={{height:38,paddingLeft:8,display:"flex",alignItems:"center",fontSize:11}}>Nivel {level}</div>)}</div></div></section>}
+function SubNav({ tabs, activeTab, onTabChange }) {
+  return (
+    <nav style={styles.subNav} aria-label="Navegación de área">
+      {tabs.map((tab) => (
+        <button key={tab.id} type="button" onClick={() => onTabChange(tab.id)} style={{ ...styles.subTab, ...(activeTab === tab.id ? styles.subTabActive : {}) }}>
+          {tab.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
 
-function Warehouse2({data,choose,sel,role,saveCell}){const sectors=[...new Set(W2_STREETS.map(x=>x.sector))];return <div style={{minWidth:760}}><h2>Bodega 2</h2><p style={{color:P.l,fontSize:12}}>Racks selectivos por sectores · {role==="viewer"?"solo lectura":"doble clic para editar SKU"}</p>{sectors.map(sec=><section key={sec} style={{border:"1px solid #ddd",borderRadius:12,padding:12,marginBottom:12}}><h3 style={{margin:"0 0 8px",fontSize:13}}>{sec}</h3><div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(260px,1fr))",gap:7}}>{W2_STREETS.filter(x=>x.sector===sec).map(x=><W2Block key={x.code} x={x} value={data[x.code]||""} active={sel===x.code} choose={choose} role={role} saveCell={saveCell}/>)}</div></section>)}</div>}
-function W2Block({x,value,active,choose,role,saveCell}){const[editing,setEditing]=useState(false),[draft,setDraft]=useState(value);const start=()=>{if(role==="viewer")return;setDraft(value);setEditing(true);choose(x.code)};const save=()=>{if(!editing)return;saveCell(x.code,draft.trim());setEditing(false)};return <div onClick={()=>choose(x.code)} style={{border:active?`2px solid ${P.p}`:"1px solid #bbb",borderRadius:8,overflow:"hidden",background:"white"}}><div style={{background:P.p,color:"white",padding:"5px 8px",fontSize:10,fontWeight:900}}>{x.calle}</div><div style={{minHeight:44,display:"flex",alignItems:"center",gap:8,padding:"6px 8px"}}>{editing?<input autoFocus value={draft} onChange={e=>setDraft(e.target.value)} onBlur={save} onKeyDown={e=>{if(e.key==="Enter")save();if(e.key==="Escape"){setDraft(value);setEditing(false)}}} style={{flex:1,minWidth:0,padding:7,border:`2px solid ${P.p}`,borderRadius:6,fontWeight:800}}/>:<button onDoubleClick={start} style={{flex:1,textAlign:"left",border:0,background:"transparent",fontWeight:800,fontSize:12,cursor:role==="viewer"?"default":"text"}}>{value||"·"}</button>}<span style={{background:"#E8FFFF",border:`1px solid ${P.p}`,borderRadius:12,padding:"3px 7px",fontSize:9,fontWeight:900,whiteSpace:"nowrap"}}>{x.pos} pos.</span></div></div>}
+function Section({ title, description, children }) {
+  return (
+    <section style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>{title}</h2>
+          <p style={styles.sectionDescription}>{description}</p>
+        </div>
+        <span style={styles.status}>V3 operativa</span>
+      </div>
+      {children}
+    </section>
+  );
+}
 
-function Drive({data,hits,choose,sel,titles,setTitles,load,setStatus,setting,ensureProduct,role,saveCell}){return <div style={{minWidth:850}}><h2>Drive In</h2><p style={{color:P.l}}>23 calles · 3 niveles · 5 profundidades</p><div className="drivegrid" style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(360px,1fr))",gap:12}}>{Array.from({length:23},(_,i)=>i+1).map(c=><Street key={c} c={c} data={data} hits={hits} choose={choose} sel={sel} title={titles[c]||""} setTitle={v=>setTitles(x=>({...x,[c]:v}))} load={load} setStatus={setStatus} setting={setting} ensureProduct={ensureProduct} role={role} saveCell={saveCell}/>)}</div></div>}
+function Bodega70({ activeTab, onTabChange }) {
+  return (
+    <Section title="Bodega 70" description="Racks selectivos y almacenamiento compacto Drive In.">
+      <SubNav
+        tabs={[{ id: "racks", label: "Racks Selectivos" }, { id: "drive", label: "Racks Drive In" }]}
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+      />
+      {activeTab === "racks" && <RacksSelectivos />}
+      {activeTab === "drive" && <Placeholder code="DI" title="Racks Drive In" text="Aquí construiremos las 23 calles Drive In." />}
+    </Section>
+  );
+}
 
-function Street({c,data,hits,choose,sel,title,setTitle,load,setStatus,setting,ensureProduct,role,saveCell}){const[s,setS]=useState("");const[ls,setLs]=useState([1,2,3]);const[fs,setFs]=useState([1,2,3,4,5]);const toggle=(a,set,v)=>set(a.includes(v)?a.filter(x=>x!==v):[...a,v]);async function mass(v,levels=ls,depths=fs){if(v&&!v.trim())return;setStatus("Guardando...");if(v){const productError=await ensureProduct(v);if(productError){setStatus("Error: "+productError.message);return}}const codes=[];levels.forEach(n=>depths.forEach(f=>codes.push(dbD(c,n,f))));const x=await sb.from("locations").update({sku:v||null,updated_at:new Date().toISOString()}).in("code",codes);if(x.error)setStatus("Error: "+x.error.message);else await load()}return <section style={{border:"1px solid #ddd",borderRadius:12,padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>{role==="admin"?<input value={title} onChange={e=>setTitle(e.target.value)} onBlur={e=>setting(`drive_title_${String(c).padStart(2,"0")}`,e.target.value)} style={{width:"100%",height:36,padding:"0 10px",borderRadius:8,background:P.p,color:"#fff",fontSize:13,fontWeight:800,border:`1px solid ${P.p}`,outline:0}}/>:<div style={{width:"100%",height:36,display:"flex",alignItems:"center",padding:"0 10px",borderRadius:8,background:P.p,color:"#fff",fontSize:13,fontWeight:800,border:`1px solid ${P.p}`,boxSizing:"border-box"}}>{title}</div>}{role!=="viewer"&&<button onClick={()=>mass(null,[1,2,3],[1,2,3,4,5])} style={{border:0,background:"none",color:P.h,fontWeight:700,whiteSpace:"nowrap"}}>Vaciar calle</button>}</div>{role!=="viewer"&&<div style={{background:"#E8FFFF",border:`1px solid ${P.p}`,padding:8,borderRadius:10,margin:"10px 0"}}><div style={{display:"flex",gap:6}}><input value={s} onChange={e=>setS(e.target.value)} placeholder="Pegar SKU" style={{minWidth:0,flex:1,padding:8,border:`1px solid ${P.l}`,borderRadius:7}}/><button onClick={()=>mass(s.trim())} style={{...saveStyle,whiteSpace:"nowrap"}}>Asignar {ls.length*fs.length}</button></div><div style={{display:"flex",gap:4,marginTop:7}}>{[1,2,3].map(x=><button key={x} onClick={()=>toggle(ls,setLs,x)} style={{background:ls.includes(x)?P.p:"white",color:ls.includes(x)?"white":P.d,border:`1px solid ${P.l}`,borderRadius:5}}>N{x}</button>)}{[1,2,3,4,5].map(x=><button key={x} onClick={()=>toggle(fs,setFs,x)} style={{background:fs.includes(x)?P.p:"white",color:fs.includes(x)?"white":P.d,border:`1px solid ${P.l}`,borderRadius:5}}>F{x}</button>)}</div></div>}<div style={{display:"grid",gridTemplateColumns:"50px repeat(5,1fr)",gap:3,marginTop:10,marginBottom:3}}><span></span>{[1,2,3,4,5].map(f=><div key={f} style={{fontSize:10,fontWeight:800,textAlign:"center"}}>F{f}</div>)}</div>{[3,2,1].map(n=><div key={n} style={{display:"grid",gridTemplateColumns:"50px repeat(5,1fr)",gap:3,marginBottom:3,height:34}}><span style={{fontSize:10,display:"flex",alignItems:"center"}}>Nivel {n}</span>{[1,2,3,4,5].map(f=>{const k=uiD(c,n,f),v=data[k]||"";return role==="viewer"?<button id={`location-${k}`} key={k} onClick={()=>choose(k)} style={{height:34,border:`1px solid ${P.l}`,borderRadius:5,background:hits.has(k)?"#BFF4F4":sel===k?"#D6FAFA":"white",fontSize:9,fontWeight:700}}>{v||`F${f}`}</button>:<EditableCell key={k} cellKey={k} value={v} selected={sel===k} onSelect={choose} onSave={saveCell}/>})}</div>)}</section>}
+function RacksSelectivos() {
+  const [cells, setCells] = useState({});
+  const [activeCell, setActiveCell] = useState("");
+
+  function updateCell(rack, level, position, value) {
+    const key = `${rack}-${level}-${position}`;
+    setCells((current) => ({ ...current, [key]: value }));
+  }
+
+  return (
+    <div style={styles.fullLayoutArea}>
+      <div style={styles.layoutToolbar}>
+        <div>
+          <h3 style={styles.areaTitle}>Plano completo de Racks Selectivos</h3>
+          <p style={styles.areaDescription}>Racks 1 al 11. Haz clic en cualquier celda para escribir, modificar o borrar el SKU.</p>
+        </div>
+        <span style={styles.summaryBadge}>Celdas editables</span>
+      </div>
+
+      <div style={styles.canvasScroller}>
+        <div style={styles.warehouseCanvas}>
+          {RACKS.map((rack) => (
+            <div key={rack.number} className={rack.className} style={{ ...styles.rackPlacement, ...rackPlacements[rack.className] }}>
+              <WarehouseRack rack={rack} cells={cells} activeCell={activeCell} setActiveCell={setActiveCell} updateCell={updateCell} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell }) {
+  const positions = Array.from({ length: rack.positions }, (_, index) => rack.positions - index);
+  const levels = [3, 2, 1];
+
+  return (
+    <div style={styles.warehouseRack}>
+      <div style={styles.rackName}>RACK {rack.number}</div>
+      <div style={styles.rackMatrixWrap}>
+        <div style={{ ...styles.rackMatrix, gridTemplateColumns: `repeat(${rack.positions}, 72px)` }}>
+          {positions.map((position) => <div key={`h-${position}`} style={styles.matrixPositionHeader}>P{position}</div>)}
+          {levels.flatMap((level) => positions.map((position) => {
+            const key = `${rack.number}-${level}-${position}`;
+            return (
+              <input
+                key={key}
+                value={cells[key] || ""}
+                onFocus={() => setActiveCell(key)}
+                onChange={(event) => updateCell(rack.number, level, position, event.target.value)}
+                aria-label={`Rack ${rack.number}, nivel ${level}, posición ${position}`}
+                style={{
+                  ...styles.matrixCell,
+                  ...(level === 3 ? styles.levelThree : {}),
+                  ...(level === 2 ? styles.levelTwo : {}),
+                  ...(level === 1 ? styles.levelOne : {}),
+                  ...(activeCell === key ? styles.matrixCellActive : {}),
+                }}
+              />
+            );
+          }))}
+        </div>
+        <div style={styles.levelLabelsColumn}>
+          <div style={styles.levelSpacer} />
+          <div style={styles.matrixLevelLabel}>Nivel 3</div>
+          <div style={styles.matrixLevelLabel}>Nivel 2</div>
+          <div style={styles.matrixLevelLabel}>Nivel 1</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Bodega60({ activeTab, onTabChange }) {
+  const tabs = [
+    { id: "envases", label: "Envases" },
+    { id: "tc", label: "Etiquetas TC" },
+    { id: "adhesivas", label: "Etiquetas Adhesivas" },
+    { id: "film", label: "FILM" },
+  ];
+  const panels = {
+    envases: ["EN", "Envases", "Ubicaciones y control de envases."],
+    tc: ["TC", "Etiquetas TC", "Área de almacenamiento de etiquetas TC."],
+    adhesivas: ["EA", "Etiquetas Adhesivas", "Área de almacenamiento de etiquetas adhesivas."],
+    film: ["FI", "FILM", "Área de almacenamiento y control de film."],
+  };
+  const panel = panels[activeTab];
+
+  return (
+    <Section title="Bodega 60" description="Envases y materiales de empaque.">
+      <SubNav tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} />
+      <Placeholder code={panel[0]} title={panel[1]} text={panel[2]} />
+    </Section>
+  );
+}
+
+function Placeholder({ code, title, text }) {
+  return (
+    <div style={styles.placeholder}>
+      <div style={styles.placeholderCode}>{code}</div>
+      <div>
+        <h3 style={styles.areaTitle}>{title}</h3>
+        <p style={styles.areaDescription}>{text}</p>
+        <p style={styles.pending}>Layout pendiente de diseño.</p>
+      </div>
+    </div>
+  );
+}
+
+function MaestroProductos() {
+  return (
+    <Section title="Maestro de Productos" description="SKU, stock, palletizado, ubicaciones y diferencias.">
+      <Placeholder code="MP" title="Maestro de Productos" text="Módulo preparado para la siguiente etapa." />
+    </Section>
+  );
+}
+
+const rackPlacements = {
+  rack1: { gridColumn: "1 / 13", gridRow: "1" },
+  rack2: { gridColumn: "3 / 11", gridRow: "2" },
+  rack3: { gridColumn: "3 / 11", gridRow: "3" },
+  rack4: { gridColumn: "6 / 12", gridRow: "4" },
+  rack5: { gridColumn: "6 / 12", gridRow: "5" },
+  rack6: { gridColumn: "6 / 12", gridRow: "6" },
+  rack7: { gridColumn: "6 / 12", gridRow: "7" },
+  rack8: { gridColumn: "6 / 12", gridRow: "8" },
+  rack9: { gridColumn: "6 / 12", gridRow: "9" },
+  rack10: { gridColumn: "6 / 12", gridRow: "10" },
+  rack11: { gridColumn: "6 / 12", gridRow: "11" },
+};
+
+const styles = {
+  app: { minHeight: "100vh", padding: 28, background: COLORS.background, color: COLORS.text, fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
+  header: { maxWidth: 1280, margin: "0 auto 22px", display: "flex", justifyContent: "space-between", gap: 20 },
+  eyebrow: { margin: "0 0 6px", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800, letterSpacing: ".16em" },
+  title: { margin: 0, fontSize: "clamp(28px,4vw,42px)", lineHeight: 1.1 },
+  subtitle: { margin: "10px 0 0", color: COLORS.muted, fontSize: 15 },
+  version: { padding: "8px 12px", height: "fit-content", borderRadius: 999, background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800 },
+  mainNav: { maxWidth: 1280, margin: "0 auto 18px", padding: 6, display: "flex", gap: 6, flexWrap: "wrap", background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, boxShadow: "0 8px 24px rgba(16,24,40,.05)" },
+  mainTab: { padding: "11px 17px", border: 0, borderRadius: 10, background: "transparent", color: COLORS.muted, fontSize: 14, fontWeight: 750, cursor: "pointer" },
+  mainTabActive: { background: COLORS.turquoise, color: "#fff", boxShadow: "0 5px 14px rgba(0,193,194,.24)" },
+  content: { maxWidth: 1280, margin: "0 auto" },
+  section: { padding: 24, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 16, boxShadow: "0 10px 28px rgba(16,24,40,.06)" },
+  sectionHeader: { marginBottom: 18, display: "flex", justifyContent: "space-between", gap: 16 },
+  sectionTitle: { margin: 0, fontSize: 25 },
+  sectionDescription: { margin: "7px 0 0", color: COLORS.muted, fontSize: 14 },
+  status: { padding: "6px 10px", height: "fit-content", borderRadius: 999, background: "#EEF2F6", color: COLORS.muted, fontSize: 11, fontWeight: 750, whiteSpace: "nowrap" },
+  subNav: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${COLORS.border}` },
+  subTab: { padding: "9px 14px", border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#fff", color: COLORS.muted, fontSize: 13, fontWeight: 750, cursor: "pointer" },
+  subTabActive: { borderColor: COLORS.turquoise, background: "#E7FBFB", color: COLORS.turquoiseDark },
+  fullLayoutArea: { border: `1px solid ${COLORS.border}`, borderRadius: 16, background: "#fff", overflow: "hidden" },
+  layoutToolbar: { padding: 18, display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", background: "#FBFDFE", borderBottom: `1px solid ${COLORS.border}` },
+  areaTitle: { margin: "0 0 7px", fontSize: 20 },
+  areaDescription: { margin: 0, color: COLORS.muted, fontSize: 14, lineHeight: 1.5 },
+  summaryBadge: { padding: "7px 11px", borderRadius: 999, background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800, whiteSpace: "nowrap" },
+  canvasScroller: { overflowX: "auto", padding: 18 },
+  warehouseCanvas: { minWidth: 1120, display: "grid", gridTemplateColumns: "repeat(12, 72px)", gridAutoRows: "auto", columnGap: 0, rowGap: 24, alignItems: "start", padding: "2px 0 22px" },
+  rackPlacement: { minWidth: 0 },
+  warehouseRack: { display: "grid", gridTemplateColumns: "74px auto", alignItems: "center" },
+  rackName: { paddingRight: 8, textAlign: "right", fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" },
+  rackMatrixWrap: { display: "flex", alignItems: "stretch" },
+  rackMatrix: { display: "grid", border: "1.5px solid #111", borderRadius: "8px 0 0 8px", overflow: "hidden", background: "#fff" },
+  matrixPositionHeader: { height: 22, display: "grid", placeItems: "center", background: "#F8FAFC", borderRight: "1px solid #A9AEB3", borderBottom: "1px solid #111", fontSize: 10, color: COLORS.text },
+  matrixCell: { width: "100%", height: 32, minWidth: 0, padding: "2px 4px", border: 0, borderRight: "1px solid #111", borderBottom: "1px solid #111", borderRadius: 0, outline: "none", textAlign: "center", color: "#101828", fontSize: 10, boxSizing: "border-box" },
+  matrixCellActive: { boxShadow: `inset 0 0 0 2px ${COLORS.turquoise}`, zIndex: 1 },
+  levelThree: { background: "#DDF2F6" },
+  levelTwo: { background: "#F9E8DF" },
+  levelOne: { background: "#EEF4E5" },
+  levelLabelsColumn: { width: 58, flex: "0 0 58px", display: "grid", gridTemplateRows: "22px repeat(3,32px)", border: "1.5px solid #111", borderLeft: 0, borderRadius: "0 8px 8px 0", overflow: "hidden" },
+  levelSpacer: { background: "#F8FAFC", borderBottom: "1px solid #111" },
+  matrixLevelLabel: { display: "grid", placeItems: "center", borderBottom: "1px solid #111", background: "#fff", color: COLORS.text, fontSize: 10, whiteSpace: "nowrap" },
+  placeholder: { minHeight: 220, padding: 28, display: "flex", alignItems: "flex-start", gap: 16, border: `1px dashed ${COLORS.border}`, borderRadius: 14, background: "#FBFDFE" },
+  placeholderCode: { width: 50, height: 50, flex: "0 0 50px", display: "grid", placeItems: "center", borderRadius: 14, background: COLORS.turquoise, color: "#fff", fontWeight: 850 },
+  pending: { marginTop: 18, color: COLORS.turquoiseDark, fontSize: 13, fontWeight: 750 },
+};
