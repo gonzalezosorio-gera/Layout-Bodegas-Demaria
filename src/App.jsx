@@ -37,7 +37,7 @@ export default function App() {
           <h1 style={styles.title}>Layout de Bodegas</h1>
           <p style={styles.subtitle}>Gestión visual de ubicaciones, materiales y productos.</p>
         </div>
-        <div style={styles.version}>V3.1</div>
+        <div style={styles.version}>V3.2</div>
       </header>
 
       <nav style={styles.mainNav} aria-label="Navegación principal">
@@ -83,7 +83,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V3.1 operativa</span>
+        <span style={styles.status}>V3.2 operativa</span>
       </div>
       {children}
     </section>
@@ -99,8 +99,96 @@ function Bodega70({ activeTab, onTabChange }) {
         onTabChange={onTabChange}
       />
       {activeTab === "racks" && <RacksSelectivos />}
-      {activeTab === "drive" && <Placeholder code="DI" title="Racks Drive In" text="Aquí construiremos las 23 calles Drive In." />}
+      {activeTab === "drive" && <DriveIn />}
     </Section>
+  );
+}
+
+function DriveIn() {
+  const [cells, setCells] = useState({});
+  const [activeCell, setActiveCell] = useState("");
+  const streets = Array.from({ length: 23 }, (_, index) => index + 1);
+
+  function updateCell(street, level, depth, value) {
+    const key = `${street}-${level}-${depth}`;
+    setCells((current) => ({ ...current, [key]: value }));
+  }
+
+  return (
+    <div style={styles.driveArea}>
+      <div style={styles.layoutToolbar}>
+        <div>
+          <h3 style={styles.areaTitle}>Racks Drive In</h3>
+          <p style={styles.areaDescription}>
+            23 calles independientes, cada una con 5 posiciones de profundidad y 3 niveles de altura. Todas las celdas son editables.
+          </p>
+        </div>
+        <span style={styles.summaryBadge}>345 celdas editables</span>
+      </div>
+
+      <div style={styles.driveGrid}>
+        {streets.map((street) => (
+          <DriveStreet
+            key={street}
+            street={street}
+            cells={cells}
+            activeCell={activeCell}
+            setActiveCell={setActiveCell}
+            updateCell={updateCell}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell }) {
+  const depths = [1, 2, 3, 4, 5];
+  const levels = [3, 2, 1];
+
+  return (
+    <article style={styles.driveStreet}>
+      <div style={styles.driveStreetHeader}>
+        Calle {String(street).padStart(2, "0")}
+      </div>
+
+      <div style={styles.driveMatrixWrap}>
+        <div style={styles.driveMatrix}>
+          <div style={styles.driveCorner}>NIVEL</div>
+          {depths.map((depth) => (
+            <div key={`depth-${depth}`} style={styles.driveDepthHeader}>
+              PROF. {depth}
+            </div>
+          ))}
+
+          {levels.flatMap((level) => [
+            <div key={`label-${level}`} style={styles.driveLevelLabel}>
+              N{level}
+            </div>,
+            ...depths.map((depth) => {
+              const key = `${street}-${level}-${depth}`;
+              return (
+                <input
+                  key={key}
+                  value={cells[key] || ""}
+                  onFocus={() => setActiveCell(key)}
+                  onChange={(event) => updateCell(street, level, depth, event.target.value)}
+                  aria-label={`Calle ${street}, nivel ${level}, profundidad ${depth}`}
+                  placeholder="SKU"
+                  style={{
+                    ...styles.driveCell,
+                    ...(level === 3 ? styles.levelThree : {}),
+                    ...(level === 2 ? styles.levelTwo : {}),
+                    ...(level === 1 ? styles.levelOne : {}),
+                    ...(activeCell === key ? styles.driveCellActive : {}),
+                  }}
+                />
+              );
+            }),
+          ])}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -275,6 +363,17 @@ const styles = {
   levelLabelsColumn: { width: 64, flex: "0 0 64px", display: "grid", gridTemplateRows: "28px repeat(3,36px)", border: `2px solid ${COLORS.turquoiseDark}`, borderLeft: 0, borderRadius: "0 12px 12px 0", overflow: "hidden", boxShadow: "0 5px 16px rgba(0,154,155,.09)" },
   levelSpacer: { background: COLORS.turquoise, borderBottom: `1px solid ${COLORS.turquoiseDark}` },
   matrixLevelLabel: { display: "grid", placeItems: "center", borderBottom: `1px solid ${COLORS.turquoiseDark}`, background: "#F7FFFF", color: COLORS.turquoiseDark, fontSize: 10, fontWeight: 800, whiteSpace: "nowrap" },
+  driveArea: { border: `1px solid ${COLORS.border}`, borderRadius: 16, background: "#FFFFFF", overflow: "hidden" },
+  driveGrid: { padding: 18, display: "grid", gridTemplateColumns: "repeat(2, minmax(460px, 1fr))", gap: 18, overflowX: "auto" },
+  driveStreet: { minWidth: 460, overflow: "hidden", border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: 14, background: "#FFFFFF", boxShadow: "0 6px 18px rgba(0,154,155,.09)" },
+  driveStreetHeader: { padding: "10px 14px", background: COLORS.turquoise, color: "#FFFFFF", textAlign: "center", fontSize: 13, fontWeight: 900, letterSpacing: ".04em" },
+  driveMatrixWrap: { overflowX: "auto" },
+  driveMatrix: { minWidth: 450, display: "grid", gridTemplateColumns: "62px repeat(5, minmax(72px, 1fr))" },
+  driveCorner: { minHeight: 30, display: "grid", placeItems: "center", background: COLORS.turquoiseDark, color: "#FFFFFF", borderRight: "1px solid rgba(255,255,255,.35)", borderBottom: `1px solid ${COLORS.turquoiseDark}`, fontSize: 9, fontWeight: 900 },
+  driveDepthHeader: { minHeight: 30, display: "grid", placeItems: "center", background: "#DDF9F8", color: COLORS.turquoiseDark, borderRight: `1px solid ${COLORS.turquoiseDark}`, borderBottom: `1px solid ${COLORS.turquoiseDark}`, fontSize: 9, fontWeight: 900 },
+  driveLevelLabel: { minHeight: 40, display: "grid", placeItems: "center", background: "#F7FFFF", color: COLORS.turquoiseDark, borderRight: `1px solid ${COLORS.turquoiseDark}`, borderBottom: `1px solid ${COLORS.turquoiseDark}`, fontSize: 11, fontWeight: 900 },
+  driveCell: { width: "100%", minWidth: 0, minHeight: 40, padding: "4px 5px", border: 0, borderRight: `1px solid ${COLORS.turquoiseDark}`, borderBottom: `1px solid ${COLORS.turquoiseDark}`, borderRadius: 0, outline: "none", boxSizing: "border-box", textAlign: "center", color: COLORS.text, fontSize: 10, fontWeight: 700 },
+  driveCellActive: { position: "relative", zIndex: 1, boxShadow: `inset 0 0 0 2px ${COLORS.turquoise}` },
   placeholder: { minHeight: 220, padding: 28, display: "flex", alignItems: "flex-start", gap: 16, border: `1px dashed ${COLORS.border}`, borderRadius: 14, background: "#FBFDFE" },
   placeholderCode: { width: 50, height: 50, flex: "0 0 50px", display: "grid", placeItems: "center", borderRadius: 14, background: COLORS.turquoise, color: "#fff", fontWeight: 850 },
   pending: { marginTop: 18, color: COLORS.turquoiseDark, fontSize: 13, fontWeight: 750 },
