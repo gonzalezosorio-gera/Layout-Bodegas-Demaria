@@ -214,7 +214,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V3.4 operativa</span>
+        <span style={styles.status}>V3.4.1 operativa</span>
       </div>
       {children}
     </section>
@@ -303,12 +303,26 @@ function DriveIn({ cells, setCells }) {
   function pasteSelection(text) {
     if (!selection) return;
     const rows = text.replace(/\r/g, "").split("\n").filter((row, index, all) => row || index < all.length - 1).map((row) => row.split("\t"));
+    const bounds = selectionBounds(selection);
+    const isSingleValue = rows.length === 1 && rows[0].length === 1;
+
     setCells((current) => {
       const next = { ...current };
+
+      if (isSingleValue) {
+        const value = rows[0][0].trim();
+        for (let row = bounds.rowStart; row <= bounds.rowEnd; row += 1) {
+          for (let col = bounds.colStart; col <= bounds.colEnd; col += 1) {
+            next[`${selection.group}-${levels[row]}-${depths[col]}`] = value;
+          }
+        }
+        return next;
+      }
+
       rows.forEach((values, rowOffset) => {
         values.forEach((value, colOffset) => {
-          const row = selection.anchor.row + rowOffset;
-          const col = selection.anchor.col + colOffset;
+          const row = bounds.rowStart + rowOffset;
+          const col = bounds.colStart + colOffset;
           if (row < levels.length && col < depths.length) {
             next[`${selection.group}-${levels[row]}-${depths[col]}`] = value.trim();
           }
@@ -481,12 +495,26 @@ function RacksSelectivos({ cells, setCells }) {
     if (!selection) return;
     const rack = RACKS.find((item) => item.number === selection.group);
     const rows = text.replace(/\r/g, "").split("\n").filter((row, index, all) => row || index < all.length - 1).map((row) => row.split("\t"));
+    const bounds = selectionBounds(selection);
+    const isSingleValue = rows.length === 1 && rows[0].length === 1;
+
     setCells((current) => {
       const next = { ...current };
+
+      if (isSingleValue) {
+        const value = rows[0][0].trim();
+        for (let row = bounds.rowStart; row <= bounds.rowEnd; row += 1) {
+          for (let col = bounds.colStart; col <= Math.min(bounds.colEnd, rack.positions - 1); col += 1) {
+            next[`${rack.number}-${levels[row]}-${col + 1}`] = value;
+          }
+        }
+        return next;
+      }
+
       rows.forEach((values, rowOffset) => {
         values.forEach((value, colOffset) => {
-          const row = selection.anchor.row + rowOffset;
-          const col = selection.anchor.col + colOffset;
+          const row = bounds.rowStart + rowOffset;
+          const col = bounds.colStart + colOffset;
           if (row < levels.length && col < rack.positions) {
             next[`${rack.number}-${levels[row]}-${col + 1}`] = value.trim();
           }
