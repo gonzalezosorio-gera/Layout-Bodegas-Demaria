@@ -214,7 +214,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V3.3 operativa</span>
+        <span style={styles.status}>V3.4 operativa</span>
       </div>
       {children}
     </section>
@@ -235,25 +235,123 @@ function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells,
   );
 }
 
+function selectionBounds(selection) {
+  if (!selection) return null;
+  return {
+    rowStart: Math.min(selection.anchor.row, selection.focus.row),
+    rowEnd: Math.max(selection.anchor.row, selection.focus.row),
+    colStart: Math.min(selection.anchor.col, selection.focus.col),
+    colEnd: Math.max(selection.anchor.col, selection.focus.col),
+  };
+}
+
+function isCellSelected(selection, group, row, col) {
+  if (!selection || selection.group !== group) return false;
+  const bounds = selectionBounds(selection);
+  return row >= bounds.rowStart && row <= bounds.rowEnd && col >= bounds.colStart && col <= bounds.colEnd;
+}
+
 function DriveIn({ cells, setCells }) {
   const [activeCell, setActiveCell] = useState("");
+  const [selection, setSelection] = useState(null);
+  const [dragging, setDragging] = useState(false);
   const streets = Array.from({ length: 23 }, (_, index) => index + 1);
+  const levels = [3, 2, 1];
+  const depths = [1, 2, 3, 4, 5];
 
   function updateCell(street, level, depth, value) {
     const key = `${street}-${level}-${depth}`;
     setCells((current) => ({ ...current, [key]: value }));
   }
 
+  function selectedDriveKeys(currentSelection = selection) {
+    if (!currentSelection) return [];
+    const bounds = selectionBounds(currentSelection);
+    const keys = [];
+    for (let row = bounds.rowStart; row <= bounds.rowEnd; row += 1) {
+      for (let col = bounds.colStart; col <= bounds.colEnd; col += 1) {
+        keys.push(`${currentSelection.group}-${levels[row]}-${depths[col]}`);
+      }
+    }
+    return keys;
+  }
+
+  function clearSelection() {
+    const keys = selectedDriveKeys();
+    if (!keys.length) return;
+    setCells((current) => {
+      const next = { ...current };
+      keys.forEach((key) => delete next[key]);
+      return next;
+    });
+  }
+
+  function copySelection() {
+    if (!selection) return;
+    const bounds = selectionBounds(selection);
+    const text = [];
+    for (let row = bounds.rowStart; row <= bounds.rowEnd; row += 1) {
+      const values = [];
+      for (let col = bounds.colStart; col <= bounds.colEnd; col += 1) {
+        values.push(cells[`${selection.group}-${levels[row]}-${depths[col]}`] || "");
+      }
+      text.push(values.join("\t"));
+    }
+    navigator.clipboard?.writeText(text.join("\n"));
+  }
+
+  function pasteSelection(text) {
+    if (!selection) return;
+    const rows = text.replace(/\r/g, "").split("\n").filter((row, index, all) => row || index < all.length - 1).map((row) => row.split("\t"));
+    setCells((current) => {
+      const next = { ...current };
+      rows.forEach((values, rowOffset) => {
+        values.forEach((value, colOffset) => {
+          const row = selection.anchor.row + rowOffset;
+          const col = selection.anchor.col + colOffset;
+          if (row < levels.length && col < depths.length) {
+            next[`${selection.group}-${levels[row]}-${depths[col]}`] = value.trim();
+          }
+        });
+      });
+      return next;
+    });
+  }
+
+  function handleGridKeyDown(event) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+      event.preventDefault();
+      copySelection();
+    }
+    if ((event.key === "Delete" || event.key === "Backspace") && selectedDriveKeys().length > 1) {
+      event.preventDefault();
+      clearSelection();
+    }
+  }
+
   return (
-    <div style={styles.driveArea}>
+    <div
+      style={styles.driveArea}
+      onMouseUp={() => setDragging(false)}
+      onMouseLeave={() => setDragging(false)}
+      onKeyDown={handleGridKeyDown}
+      onPaste={(event) => {
+        if (selection) {
+          event.preventDefault();
+          pasteSelection(event.clipboardData.getData("text/plain"));
+        }
+      }}
+    >
       <div style={styles.layoutToolbar}>
         <div>
           <h3 style={styles.areaTitle}>Racks Drive In</h3>
-          <p style={styles.areaDescription}>
-            23 calles independientes, cada una con 5 posiciones de profundidad y 3 niveles de altura. Todas las celdas son editables.
-          </p>
+          <p style={styles.areaDescription}>23 calles, 5 profundidades y 3 niveles. Arrastra para seleccionar; usa Ctrl/Cmd+C, Ctrl/Cmd+V o Supr.</p>
         </div>
-        <span style={styles.summaryBadge}>345 celdas editables</span>
+        <div style={styles.selectionTools}>
+          <span style={styles.summaryBadge}>345 celdas editables</span>
+          <button type="button" onClick={copySelection} style={styles.selectionButton}>Copiar</button>
+          <button type="button" onClick={clearSelection} style={styles.selectionButtonDanger}>Borrar selección</button>
+        </div>
       </div>
 
       <div style={styles.driveGrid}>
@@ -265,6 +363,10 @@ function DriveIn({ cells, setCells }) {
             activeCell={activeCell}
             setActiveCell={setActiveCell}
             updateCell={updateCell}
+            selection={selection}
+            setSelection={setSelection}
+            dragging={dragging}
+            setDragging={setDragging}
           />
         ))}
       </div>
@@ -272,36 +374,38 @@ function DriveIn({ cells, setCells }) {
   );
 }
 
-function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell }) {
+function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging }) {
   const depths = [1, 2, 3, 4, 5];
   const levels = [3, 2, 1];
 
   return (
     <article style={styles.driveStreet}>
-      <div style={styles.driveStreetHeader}>
-        Calle {String(street).padStart(2, "0")}
-      </div>
-
+      <div style={styles.driveStreetHeader}>Calle {String(street).padStart(2, "0")}</div>
       <div style={styles.driveMatrixWrap}>
         <div style={styles.driveMatrix}>
           <div style={styles.driveCorner}>NIVEL</div>
-          {depths.map((depth) => (
-            <div key={`depth-${depth}`} style={styles.driveDepthHeader}>
-              PROF. {depth}
-            </div>
-          ))}
-
-          {levels.flatMap((level) => [
-            <div key={`label-${level}`} style={styles.driveLevelLabel}>
-              N{level}
-            </div>,
-            ...depths.map((depth) => {
+          {depths.map((depth) => <div key={`depth-${depth}`} style={styles.driveDepthHeader}>PROF. {depth}</div>)}
+          {levels.flatMap((level, row) => [
+            <div key={`label-${level}`} style={styles.driveLevelLabel}>N{level}</div>,
+            ...depths.map((depth, col) => {
               const key = `${street}-${level}-${depth}`;
+              const selected = isCellSelected(selection, street, row, col);
               return (
                 <input
                   key={key}
                   value={cells[key] || ""}
-                  onFocus={() => setActiveCell(key)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setSelection({ group: street, anchor: { row, col }, focus: { row, col } });
+                    setDragging(true);
+                    setActiveCell(key);
+                    event.currentTarget.focus();
+                  }}
+                  onMouseEnter={() => {
+                    if (dragging && selection?.group === street) {
+                      setSelection((current) => ({ ...current, focus: { row, col } }));
+                    }
+                  }}
                   onChange={(event) => updateCell(street, level, depth, event.target.value)}
                   aria-label={`Calle ${street}, nivel ${level}, profundidad ${depth}`}
                   placeholder="SKU"
@@ -311,6 +415,7 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell }) {
                     ...(level === 2 ? styles.levelTwo : {}),
                     ...(level === 1 ? styles.levelOne : {}),
                     ...(activeCell === key ? styles.driveCellActive : {}),
+                    ...(selected ? styles.multiSelectedCell : {}),
                   }}
                 />
               );
@@ -324,27 +429,124 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell }) {
 
 function RacksSelectivos({ cells, setCells }) {
   const [activeCell, setActiveCell] = useState("");
+  const [selection, setSelection] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const levels = [3, 2, 1];
 
   function updateCell(rack, level, position, value) {
     const key = `${rack}-${level}-${position}`;
     setCells((current) => ({ ...current, [key]: value }));
   }
 
+  function selectedRackKeys(currentSelection = selection) {
+    if (!currentSelection) return [];
+    const rack = RACKS.find((item) => item.number === currentSelection.group);
+    if (!rack) return [];
+    const bounds = selectionBounds(currentSelection);
+    const keys = [];
+    for (let row = bounds.rowStart; row <= bounds.rowEnd; row += 1) {
+      for (let col = bounds.colStart; col <= Math.min(bounds.colEnd, rack.positions - 1); col += 1) {
+        keys.push(`${rack.number}-${levels[row]}-${col + 1}`);
+      }
+    }
+    return keys;
+  }
+
+  function clearSelection() {
+    const keys = selectedRackKeys();
+    if (!keys.length) return;
+    setCells((current) => {
+      const next = { ...current };
+      keys.forEach((key) => delete next[key]);
+      return next;
+    });
+  }
+
+  function copySelection() {
+    if (!selection) return;
+    const rack = RACKS.find((item) => item.number === selection.group);
+    const bounds = selectionBounds(selection);
+    const text = [];
+    for (let row = bounds.rowStart; row <= bounds.rowEnd; row += 1) {
+      const values = [];
+      for (let col = bounds.colStart; col <= Math.min(bounds.colEnd, rack.positions - 1); col += 1) {
+        values.push(cells[`${rack.number}-${levels[row]}-${col + 1}`] || "");
+      }
+      text.push(values.join("\t"));
+    }
+    navigator.clipboard?.writeText(text.join("\n"));
+  }
+
+  function pasteSelection(text) {
+    if (!selection) return;
+    const rack = RACKS.find((item) => item.number === selection.group);
+    const rows = text.replace(/\r/g, "").split("\n").filter((row, index, all) => row || index < all.length - 1).map((row) => row.split("\t"));
+    setCells((current) => {
+      const next = { ...current };
+      rows.forEach((values, rowOffset) => {
+        values.forEach((value, colOffset) => {
+          const row = selection.anchor.row + rowOffset;
+          const col = selection.anchor.col + colOffset;
+          if (row < levels.length && col < rack.positions) {
+            next[`${rack.number}-${levels[row]}-${col + 1}`] = value.trim();
+          }
+        });
+      });
+      return next;
+    });
+  }
+
+  function handleGridKeyDown(event) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+      event.preventDefault();
+      copySelection();
+    }
+    if ((event.key === "Delete" || event.key === "Backspace") && selectedRackKeys().length > 1) {
+      event.preventDefault();
+      clearSelection();
+    }
+  }
+
   return (
-    <div style={styles.fullLayoutArea}>
+    <div
+      style={styles.fullLayoutArea}
+      onMouseUp={() => setDragging(false)}
+      onMouseLeave={() => setDragging(false)}
+      onKeyDown={handleGridKeyDown}
+      onPaste={(event) => {
+        if (selection) {
+          event.preventDefault();
+          pasteSelection(event.clipboardData.getData("text/plain"));
+        }
+      }}
+    >
       <div style={styles.layoutToolbar}>
         <div>
           <h3 style={styles.areaTitle}>Plano completo de Racks Selectivos</h3>
-          <p style={styles.areaDescription}>Racks 1 al 11. Haz clic en cualquier celda para escribir, modificar o borrar el SKU.</p>
+          <p style={styles.areaDescription}>Arrastra sobre las celdas para seleccionar un bloque; usa Ctrl/Cmd+C, Ctrl/Cmd+V o Supr.</p>
         </div>
-        <span style={styles.summaryBadge}>Celdas editables</span>
+        <div style={styles.selectionTools}>
+          <span style={styles.summaryBadge}>Selección múltiple</span>
+          <button type="button" onClick={copySelection} style={styles.selectionButton}>Copiar</button>
+          <button type="button" onClick={clearSelection} style={styles.selectionButtonDanger}>Borrar selección</button>
+        </div>
       </div>
 
       <div style={styles.canvasScroller}>
         <div style={styles.warehouseCanvas}>
           {RACKS.map((rack) => (
             <div key={rack.number} className={rack.className} style={{ ...styles.rackPlacement, ...rackPlacements[rack.className] }}>
-              <WarehouseRack rack={rack} cells={cells} activeCell={activeCell} setActiveCell={setActiveCell} updateCell={updateCell} />
+              <WarehouseRack
+                rack={rack}
+                cells={cells}
+                activeCell={activeCell}
+                setActiveCell={setActiveCell}
+                updateCell={updateCell}
+                selection={selection}
+                setSelection={setSelection}
+                dragging={dragging}
+                setDragging={setDragging}
+              />
             </div>
           ))}
         </div>
@@ -353,7 +555,7 @@ function RacksSelectivos({ cells, setCells }) {
   );
 }
 
-function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell }) {
+function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging }) {
   const positions = Array.from({ length: rack.positions }, (_, index) => index + 1);
   const levels = [3, 2, 1];
 
@@ -363,13 +565,25 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell }) {
       <div style={styles.rackMatrixWrap}>
         <div style={{ ...styles.rackMatrix, gridTemplateColumns: `repeat(${rack.positions}, minmax(0, 1fr))` }}>
           {positions.map((position) => <div key={`h-${position}`} style={styles.matrixPositionHeader}>P{position}</div>)}
-          {levels.flatMap((level) => positions.map((position) => {
+          {levels.flatMap((level, row) => positions.map((position, col) => {
             const key = `${rack.number}-${level}-${position}`;
+            const selected = isCellSelected(selection, rack.number, row, col);
             return (
               <input
                 key={key}
                 value={cells[key] || ""}
-                onFocus={() => setActiveCell(key)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  setSelection({ group: rack.number, anchor: { row, col }, focus: { row, col } });
+                  setDragging(true);
+                  setActiveCell(key);
+                  event.currentTarget.focus();
+                }}
+                onMouseEnter={() => {
+                  if (dragging && selection?.group === rack.number) {
+                    setSelection((current) => ({ ...current, focus: { row, col } }));
+                  }
+                }}
                 onChange={(event) => updateCell(rack.number, level, position, event.target.value)}
                 aria-label={`Rack ${rack.number}, nivel ${level}, posición ${position}`}
                 style={{
@@ -378,6 +592,7 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell }) {
                   ...(level === 2 ? styles.levelTwo : {}),
                   ...(level === 1 ? styles.levelOne : {}),
                   ...(activeCell === key ? styles.matrixCellActive : {}),
+                  ...(selected ? styles.multiSelectedCell : {}),
                 }}
               />
             );
@@ -525,6 +740,10 @@ const styles = {
   driveLevelLabel: { minHeight: 40, display: "grid", placeItems: "center", background: "#F7FFFF", color: COLORS.turquoiseDark, borderRight: `1px solid ${COLORS.turquoiseDark}`, borderBottom: `1px solid ${COLORS.turquoiseDark}`, fontSize: 11, fontWeight: 900 },
   driveCell: { width: "100%", minWidth: 0, minHeight: 40, padding: "4px 5px", border: 0, borderRight: `1px solid ${COLORS.turquoiseDark}`, borderBottom: `1px solid ${COLORS.turquoiseDark}`, borderRadius: 0, outline: "none", boxSizing: "border-box", textAlign: "center", color: COLORS.text, fontSize: 10, fontWeight: 700 },
   driveCellActive: { position: "relative", zIndex: 1, boxShadow: `inset 0 0 0 2px ${COLORS.turquoise}` },
+  selectionTools: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
+  selectionButton: { padding: "7px 11px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 9, background: "#FFFFFF", color: COLORS.turquoiseDark, fontSize: 11, fontWeight: 850, cursor: "pointer" },
+  selectionButtonDanger: { padding: "7px 11px", border: "1px solid #F3A6A6", borderRadius: 9, background: "#FFF7F7", color: "#B42318", fontSize: 11, fontWeight: 850, cursor: "pointer" },
+  multiSelectedCell: { position: "relative", zIndex: 2, background: "#BDF5F4", boxShadow: `inset 0 0 0 2px ${COLORS.turquoiseDark}` },
   placeholder: { minHeight: 220, padding: 28, display: "flex", alignItems: "flex-start", gap: 16, border: `1px dashed ${COLORS.border}`, borderRadius: 14, background: "#FBFDFE" },
   placeholderCode: { width: 50, height: 50, flex: "0 0 50px", display: "grid", placeItems: "center", borderRadius: 14, background: COLORS.turquoise, color: "#fff", fontWeight: 850 },
   pending: { marginTop: 18, color: COLORS.turquoiseDark, fontSize: 13, fontWeight: 750 },
