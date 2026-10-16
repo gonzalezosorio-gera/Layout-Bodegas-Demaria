@@ -28,16 +28,138 @@ export default function App() {
   const [mainTab, setMainTab] = useState("b70");
   const [sub70, setSub70] = useState("racks");
   const [sub60, setSub60] = useState("envases");
+  const [searchSku, setSearchSku] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [rackCells, setRackCells] = useState({
+    "1-3-1": "10601105",
+    "4-2-3": "10601105",
+  });
+  const [driveCells, setDriveCells] = useState({
+    "1-3-1": "10601105",
+  });
+
+  const normalizedSearch = searchSku.trim().toLowerCase();
+  const searchResults = normalizedSearch
+    ? [
+        ...Object.entries(rackCells)
+          .filter(([, sku]) => String(sku).toLowerCase().includes(normalizedSearch))
+          .map(([key, sku]) => {
+            const [rack, level, position] = key.split("-");
+            return {
+              id: `rack-${key}`,
+              sku,
+              area: "Racks Selectivos",
+              coordinate: `RACK ${rack} · N${level} · P${position}`,
+              target: "racks",
+            };
+          }),
+        ...Object.entries(driveCells)
+          .filter(([, sku]) => String(sku).toLowerCase().includes(normalizedSearch))
+          .map(([key, sku]) => {
+            const [street, level, depth] = key.split("-");
+            return {
+              id: `drive-${key}`,
+              sku,
+              area: "Racks Drive In",
+              coordinate: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`,
+              target: "drive",
+            };
+          }),
+      ]
+    : [];
+
+  function navigateToResult(result) {
+    setMainTab("b70");
+    setSub70(result.target);
+    setSearchOpen(false);
+  }
 
   return (
     <div style={styles.app}>
       <header style={styles.header}>
-        <div>
+        <div style={styles.brandBlock}>
           <p style={styles.eyebrow}>DEMARÍA</p>
           <h1 style={styles.title}>Layout de Bodegas</h1>
           <p style={styles.subtitle}>Gestión visual de ubicaciones, materiales y productos.</p>
         </div>
-        <div style={styles.version}>V3.2</div>
+
+        <div style={styles.headerTools}>
+          <div style={styles.searchWrap}>
+            <div style={styles.searchBox}>
+              <span style={styles.searchIcon}>⌕</span>
+              <input
+                value={searchSku}
+                onChange={(event) => {
+                  setSearchSku(event.target.value);
+                  setSearchOpen(true);
+                }}
+                onFocus={() => setSearchOpen(true)}
+                placeholder="Buscar SKU"
+                aria-label="Buscar SKU"
+                style={styles.searchInput}
+              />
+              {searchSku && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchSku("");
+                    setSearchOpen(false);
+                  }}
+                  style={styles.clearSearch}
+                  aria-label="Limpiar búsqueda"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {searchOpen && searchSku.trim() && (
+              <div style={styles.searchPanel}>
+                <div style={styles.searchSummary}>
+                  <div>
+                    <span style={styles.searchSummaryLabel}>SKU buscado</span>
+                    <strong style={styles.searchSkuValue}>{searchSku.trim()}</strong>
+                  </div>
+                  <div style={styles.positionCount}>
+                    <strong>{searchResults.length}</strong>
+                    <span>{searchResults.length === 1 ? "posición" : "posiciones"}</span>
+                  </div>
+                </div>
+
+                <div style={styles.resultList}>
+                  {searchResults.length ? (
+                    searchResults.map((result) => (
+                      <button
+                        key={result.id}
+                        type="button"
+                        onClick={() => navigateToResult(result)}
+                        style={styles.resultItem}
+                      >
+                        <span style={styles.resultMarker}>●</span>
+                        <span style={styles.resultText}>
+                          <strong>{result.coordinate}</strong>
+                          <small>{result.area}</small>
+                        </span>
+                        <span style={styles.resultArrow}>›</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div style={styles.noResults}>No hay posiciones asignadas a este SKU.</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={styles.userCard}>
+            <div style={styles.userAvatar}>AD</div>
+            <div style={styles.userText}>
+              <strong>Administrador</strong>
+              <span>Usuario activo</span>
+            </div>
+            <span style={styles.onlineDot} />
+          </div>
+        </div>
       </header>
 
       <nav style={styles.mainNav} aria-label="Navegación principal">
@@ -47,7 +169,16 @@ export default function App() {
       </nav>
 
       <main style={styles.content}>
-        {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} />}
+        {mainTab === "b70" && (
+          <Bodega70
+            activeTab={sub70}
+            onTabChange={setSub70}
+            rackCells={rackCells}
+            setRackCells={setRackCells}
+            driveCells={driveCells}
+            setDriveCells={setDriveCells}
+          />
+        )}
         {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} />}
         {mainTab === "master" && <MaestroProductos />}
       </main>
@@ -83,14 +214,14 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V3.2 operativa</span>
+        <span style={styles.status}>V3.3 operativa</span>
       </div>
       {children}
     </section>
   );
 }
 
-function Bodega70({ activeTab, onTabChange }) {
+function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells, setDriveCells }) {
   return (
     <Section title="Bodega 70" description="Racks selectivos y almacenamiento compacto Drive In.">
       <SubNav
@@ -98,14 +229,13 @@ function Bodega70({ activeTab, onTabChange }) {
         activeTab={activeTab}
         onTabChange={onTabChange}
       />
-      {activeTab === "racks" && <RacksSelectivos />}
-      {activeTab === "drive" && <DriveIn />}
+      {activeTab === "racks" && <RacksSelectivos cells={rackCells} setCells={setRackCells} />}
+      {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} />}
     </Section>
   );
 }
 
-function DriveIn() {
-  const [cells, setCells] = useState({});
+function DriveIn({ cells, setCells }) {
   const [activeCell, setActiveCell] = useState("");
   const streets = Array.from({ length: 23 }, (_, index) => index + 1);
 
@@ -192,8 +322,7 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell }) {
   );
 }
 
-function RacksSelectivos() {
-  const [cells, setCells] = useState({});
+function RacksSelectivos({ cells, setCells }) {
   const [activeCell, setActiveCell] = useState("");
 
   function updateCell(rack, level, position, value) {
@@ -325,11 +454,33 @@ const rackPlacements = {
 
 const styles = {
   app: { minHeight: "100vh", padding: 28, background: COLORS.background, color: COLORS.text, fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
-  header: { maxWidth: 1280, margin: "0 auto 22px", display: "flex", justifyContent: "space-between", gap: 20 },
+  header: { maxWidth: 1280, margin: "0 auto 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, flexWrap: "wrap" },
   eyebrow: { margin: "0 0 6px", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800, letterSpacing: ".16em" },
   title: { margin: 0, fontSize: "clamp(28px,4vw,42px)", lineHeight: 1.1 },
   subtitle: { margin: "10px 0 0", color: COLORS.muted, fontSize: 15 },
   version: { padding: "8px 12px", height: "fit-content", borderRadius: 999, background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800 },
+  brandBlock: { minWidth: 250 },
+  headerTools: { display: "flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 12, flex: 1, flexWrap: "wrap" },
+  searchWrap: { position: "relative", width: "min(430px, 100%)", zIndex: 15 },
+  searchBox: { minHeight: 46, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", border: `1px solid ${COLORS.border}`, borderRadius: 13, background: "#FFFFFF", boxShadow: "0 7px 22px rgba(16,24,40,.06)" },
+  searchIcon: { color: COLORS.turquoiseDark, fontSize: 23, lineHeight: 1, fontWeight: 900 },
+  searchInput: { width: "100%", padding: "12px 0", border: 0, outline: "none", background: "transparent", color: COLORS.text, fontSize: 14, fontWeight: 650 },
+  clearSearch: { width: 27, height: 27, display: "grid", placeItems: "center", border: 0, borderRadius: 8, background: "#EEF2F6", color: COLORS.muted, fontSize: 18, cursor: "pointer" },
+  searchPanel: { position: "absolute", top: "calc(100% + 8px)", left: 0, right: 0, overflow: "hidden", border: `1px solid ${COLORS.border}`, borderRadius: 15, background: "#FFFFFF", boxShadow: "0 18px 44px rgba(16,24,40,.16)" },
+  searchSummary: { padding: 15, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "#F7FFFF", borderBottom: `1px solid ${COLORS.border}` },
+  searchSummaryLabel: { display: "block", marginBottom: 3, color: COLORS.muted, fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".08em" },
+  searchSkuValue: { display: "block", color: COLORS.text, fontSize: 14 },
+  positionCount: { minWidth: 80, padding: "7px 10px", display: "flex", alignItems: "baseline", justifyContent: "center", gap: 5, borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF" },
+  resultList: { maxHeight: 255, overflowY: "auto", padding: 6 },
+  resultItem: { width: "100%", padding: "10px 9px", display: "flex", alignItems: "center", gap: 10, border: 0, borderRadius: 9, background: "#FFFFFF", color: COLORS.text, textAlign: "left", cursor: "pointer" },
+  resultMarker: { color: COLORS.turquoise, fontSize: 10 },
+  resultText: { display: "grid", gap: 3, flex: 1 },
+  resultArrow: { color: COLORS.turquoiseDark, fontSize: 22, fontWeight: 800 },
+  noResults: { padding: 20, color: COLORS.muted, textAlign: "center", fontSize: 13 },
+  userCard: { minHeight: 46, padding: "5px 10px 5px 6px", display: "flex", alignItems: "center", gap: 9, border: `1px solid ${COLORS.border}`, borderRadius: 13, background: "#FFFFFF", boxShadow: "0 7px 22px rgba(16,24,40,.06)" },
+  userAvatar: { width: 34, height: 34, display: "grid", placeItems: "center", borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 11, fontWeight: 900 },
+  userText: { display: "grid", gap: 2, minWidth: 105, fontSize: 12 },
+  onlineDot: { width: 8, height: 8, borderRadius: 999, background: "#22C55E", boxShadow: "0 0 0 3px #DCFCE7" },
   mainNav: { maxWidth: 1280, margin: "0 auto 18px", padding: 6, display: "flex", gap: 6, flexWrap: "wrap", background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, boxShadow: "0 8px 24px rgba(16,24,40,.05)" },
   mainTab: { padding: "11px 17px", border: 0, borderRadius: 10, background: "transparent", color: COLORS.muted, fontSize: 14, fontWeight: 750, cursor: "pointer" },
   mainTabActive: { background: COLORS.turquoise, color: "#fff", boxShadow: "0 5px 14px rgba(0,193,194,.24)" },
