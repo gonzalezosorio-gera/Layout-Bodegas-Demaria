@@ -28,8 +28,11 @@ jobs:
         with:
           node-version: 20
 
+      - name: Limpiar dependencias anteriores
+        run: rm -rf node_modules package-lock.json
+
       - name: Instalar dependencias
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Compilar aplicación
         run: npm run build
