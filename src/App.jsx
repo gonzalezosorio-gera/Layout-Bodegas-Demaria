@@ -38,6 +38,7 @@ export default function App() {
   const [sub60, setSub60] = useState("envases");
   const [searchSku, setSearchSku] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [assignmentSku, setAssignmentSku] = useState("");
   const [rackCells, setRackCells] = useState({});
   const [driveCells, setDriveCells] = useState({});
   const hydratedRef = useRef(false);
@@ -264,9 +265,9 @@ export default function App() {
         {profile.role === "admin" && <Tab active={mainTab === "admin"} onClick={() => setMainTab("admin")}>Administración</Tab>}
       </nav>
       <main style={styles.content}>
-        {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} />}
+        {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} />}
         {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} />}
-        {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(target) => { setMainTab("b70"); setSub70(target); }} />}
+        {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(target) => { setMainTab("b70"); setSub70(target); }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
         {mainTab === "admin" && profile.role === "admin" && <AdminProfiles currentUserId={session.user.id} />}
       </main>
     </div>
@@ -378,14 +379,14 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V5.0 maestro</span>
+        <span style={styles.status}>V5.1 importaciones</span>
       </div>
       {children}
     </section>
   );
 }
 
-function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells, setDriveCells, canEdit }) {
+function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells, setDriveCells, canEdit, assignmentSku, onCancelAssignment }) {
   return (
     <Section title="Bodega 70" description="Racks selectivos y almacenamiento compacto Drive In.">
       <SubNav
@@ -393,8 +394,8 @@ function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells,
         activeTab={activeTab}
         onTabChange={onTabChange}
       />
-      {activeTab === "racks" && <RacksSelectivos cells={rackCells} setCells={setRackCells} canEdit={canEdit} />}
-      {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} canEdit={canEdit} />}
+      {activeTab === "racks" && <RacksSelectivos cells={rackCells} setCells={setRackCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} />}
+      {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} />}
     </Section>
   );
 }
@@ -415,7 +416,7 @@ function isCellSelected(selection, group, row, col) {
   return row >= bounds.rowStart && row <= bounds.rowEnd && col >= bounds.colStart && col <= bounds.colEnd;
 }
 
-function DriveIn({ cells, setCells, canEdit }) {
+function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment }) {
   const [activeCell, setActiveCell] = useState("");
   const [selection, setSelection] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -447,6 +448,16 @@ function DriveIn({ cells, setCells, canEdit }) {
     setCells((current) => {
       const next = { ...current };
       keys.forEach((key) => delete next[key]);
+      return next;
+    });
+  }
+
+  function assignSkuToSelection() {
+    if (!canEdit || !assignmentSku || !selection) return;
+    const keys = selectedDriveKeys();
+    setCells((current) => {
+      const next = { ...current };
+      keys.forEach((key) => { next[key] = assignmentSku; });
       return next;
     });
   }
@@ -521,6 +532,7 @@ function DriveIn({ cells, setCells, canEdit }) {
         }
       }}
     >
+      {assignmentSku && <div style={styles.assignmentBanner}><div><strong>SKU en asignación: {assignmentSku}</strong><span>Selecciona una o varias celdas y pulsa “Asignar a selección”.</span></div><div style={styles.actionGroup}><button type="button" onClick={assignSkuToSelection} style={styles.assignmentButton}>Asignar a selección</button><button type="button" onClick={onCancelAssignment} style={styles.actionSecondary}>Cancelar</button></div></div>}
       <div style={styles.layoutToolbar}>
         <div>
           <h3 style={styles.areaTitle}>Racks Drive In</h3>
@@ -609,7 +621,7 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
   );
 }
 
-function RacksSelectivos({ cells, setCells, canEdit }) {
+function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssignment }) {
   const [activeCell, setActiveCell] = useState("");
   const [selection, setSelection] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -641,6 +653,16 @@ function RacksSelectivos({ cells, setCells, canEdit }) {
     setCells((current) => {
       const next = { ...current };
       keys.forEach((key) => delete next[key]);
+      return next;
+    });
+  }
+
+  function assignSkuToSelection() {
+    if (!canEdit || !assignmentSku || !selection) return;
+    const keys = selectedRackKeys();
+    setCells((current) => {
+      const next = { ...current };
+      keys.forEach((key) => { next[key] = assignmentSku; });
       return next;
     });
   }
@@ -717,6 +739,7 @@ function RacksSelectivos({ cells, setCells, canEdit }) {
         }
       }}
     >
+      {assignmentSku && <div style={styles.assignmentBanner}><div><strong>SKU en asignación: {assignmentSku}</strong><span>Selecciona una o varias celdas y pulsa “Asignar a selección”.</span></div><div style={styles.actionGroup}><button type="button" onClick={assignSkuToSelection} style={styles.assignmentButton}>Asignar a selección</button><button type="button" onClick={onCancelAssignment} style={styles.actionSecondary}>Cancelar</button></div></div>}
       <div style={styles.layoutToolbar}>
         <div>
           <h3 style={styles.areaTitle}>Plano completo de Racks Selectivos</h3>
@@ -926,7 +949,7 @@ function LoadingPanel({ text }) {
   return <div style={styles.loadingPanel}><div style={styles.spinner} /><strong>{text}</strong></div>;
 }
 
-function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onNavigate }) {
+function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onNavigate, onAssign }) {
   const emptyDraft = { sku: "", description: "", stock: "", units_per_pallet: "", observation: "" };
   const [products, setProducts] = useState([]);
   const [draft, setDraft] = useState(emptyDraft);
@@ -938,6 +961,10 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [importPreview, setImportPreview] = useState(null);
+  const [importType, setImportType] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [history, setHistory] = useState([]);
 
   const locationsBySku = {};
   Object.entries(rackCells).forEach(([key, sku]) => {
@@ -960,6 +987,8 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
     const result = await supabase.from("products").select("sku, description, stock, units_per_pallet, observation, updated_at").order("sku");
     if (result.error) setError(result.error.message);
     else setProducts(result.data ?? []);
+    const historyResult = await supabase.from("import_history").select("id, import_type, file_name, total_rows, successful_rows, error_rows, created_at").order("created_at", { ascending: false }).limit(10);
+    if (!historyResult.error) setHistory(historyResult.data ?? []);
     setLoading(false);
   }
 
@@ -1008,6 +1037,70 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
     else { setProducts((current) => current.filter((item) => item.sku !== sku)); setMessage("Producto eliminado."); }
   }
 
+  function parseDelimited(text) {
+    const lines = text.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n").filter((line) => line.trim());
+    if (!lines.length) return [];
+    const delimiter = lines[0].includes(";") ? ";" : lines[0].includes("\t") ? "\t" : ",";
+    const headers = lines[0].split(delimiter).map((value) => value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_"));
+    return lines.slice(1).map((line, index) => {
+      const values = line.split(delimiter).map((value) => value.trim().replace(/^"|"$/g, ""));
+      return { rowNumber: index + 2, data: Object.fromEntries(headers.map((header, position) => [header, values[position] ?? ""])) };
+    });
+  }
+
+  async function readImportFile(event, type) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const text = await file.text();
+    const source = parseDelimited(text);
+    const seen = new Set();
+    const valid = [];
+    const errors = [];
+
+    source.forEach(({ rowNumber, data }) => {
+      const sku = String(data.sku || data.codigo || data.material || "").trim();
+      if (!sku) { errors.push({ rowNumber, reason: "SKU vacío" }); return; }
+      if (seen.has(sku)) { errors.push({ rowNumber, reason: `SKU duplicado en archivo: ${sku}` }); return; }
+      seen.add(sku);
+      if (type === "products") {
+        const units = Number(String(data.cantidad_pallet || data.cant_pallet || data.units_per_pallet || data.pallet || "0").replace(",", "."));
+        if (!Number.isFinite(units) || units < 0) { errors.push({ rowNumber, reason: `Cantidad por pallet inválida: ${sku}` }); return; }
+        valid.push({ sku, description: data.descripcion || data.description || "", units_per_pallet: units, observation: data.observacion || data.observation || "" });
+      } else {
+        const stock = Number(String(data.stock || data.stock_actual || data.cantidad || "").replace(/\./g, "").replace(",", "."));
+        if (!Number.isFinite(stock) || stock < 0) { errors.push({ rowNumber, reason: `Stock inválido: ${sku}` }); return; }
+        valid.push({ sku, stock });
+      }
+    });
+    setImportType(type);
+    setImportPreview({ fileName: file.name, total: source.length, valid, errors });
+  }
+
+  async function confirmImport() {
+    if (!canEdit || !importPreview?.valid.length) return;
+    setImporting(true); setError(""); setMessage("");
+    let success = 0;
+    let importErrors = [...importPreview.errors];
+
+    if (importType === "products") {
+      const payload = importPreview.valid.map((row) => ({ ...row, updated_by: userId, updated_at: new Date().toISOString() }));
+      const result = await supabase.from("products").upsert(payload, { onConflict: "sku" });
+      if (result.error) importErrors.push({ rowNumber: 0, reason: result.error.message }); else success = payload.length;
+    } else {
+      for (const row of importPreview.valid) {
+        const result = await supabase.from("products").update({ stock: row.stock, updated_by: userId, updated_at: new Date().toISOString() }).eq("sku", row.sku).select("sku");
+        if (result.error || !result.data?.length) importErrors.push({ rowNumber: 0, reason: `SKU no encontrado: ${row.sku}` }); else success += 1;
+      }
+    }
+
+    await supabase.from("import_history").insert({ import_type: importType, file_name: importPreview.fileName, total_rows: importPreview.total, successful_rows: success, error_rows: importErrors.length, imported_by: userId });
+    setMessage(`Importación finalizada: ${success} filas actualizadas, ${importErrors.length} con error.`);
+    setImportPreview(importErrors.length ? { ...importPreview, errors: importErrors, valid: [] } : null);
+    setImporting(false);
+    await loadProducts();
+  }
+
   const rows = products.map(enriched).filter((item) => {
     const searchMatch = `${item.sku} ${item.description} ${item.observation}`.toLowerCase().includes(query.trim().toLowerCase());
     const statusMatch = statusFilter === "all" || (statusFilter === "deficit" && item.difference < -0.01) || (statusFilter === "balanced" && Math.abs(item.difference) <= 0.01) || (statusFilter === "surplus" && item.difference > 0.01) || (statusFilter === "unlocated" && item.assigned === 0);
@@ -1032,7 +1125,10 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
         <option value="all">Todos los estados</option><option value="deficit">Déficit de posiciones</option><option value="balanced">Equilibrados</option><option value="surplus">Exceso de posiciones</option><option value="unlocated">Sin ubicación</option>
       </select>
       <button type="button" onClick={loadProducts} style={styles.selectionButton}>Actualizar</button>
+      {canEdit && <><label style={styles.importButton}>Importar Maestro CSV<input type="file" accept=".csv,.txt" hidden onChange={(event) => readImportFile(event, "products")} /></label><label style={styles.importButtonStock}>Actualizar Stock CSV<input type="file" accept=".csv,.txt" hidden onChange={(event) => readImportFile(event, "stock")} /></label></>}
     </div>
+
+    {importPreview && <div style={styles.importPreview}><div><strong>{importType === "products" ? "Vista previa Maestro" : "Vista previa Stock"}</strong><span>{importPreview.fileName}</span></div><div style={styles.importStats}><span>{importPreview.total} filas</span><span>{importPreview.valid.length} válidas</span><span>{importPreview.errors.length} errores</span></div>{importPreview.errors.length > 0 && <details><summary>Ver errores</summary><div style={styles.importErrors}>{importPreview.errors.slice(0,20).map((item,index) => <span key={`${item.rowNumber}-${index}`}>Fila {item.rowNumber || "—"}: {item.reason}</span>)}</div></details>}<div style={styles.actionGroup}><button type="button" disabled={importing || !importPreview.valid.length} onClick={confirmImport} style={styles.actionPrimary}>{importing ? "Importando..." : "Confirmar importación"}</button><button type="button" onClick={() => setImportPreview(null)} style={styles.actionSecondary}>Cancelar</button></div></div>}
 
     {canEdit && <form onSubmit={(event) => saveProduct(event, draft, true)} style={styles.newProductForm}>
       <strong style={styles.formTitle}>Nuevo producto</strong>
@@ -1059,10 +1155,11 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
           <td><span style={{ ...styles.differenceBadge, ...(item.difference < -0.01 ? styles.diffNegative : item.difference > 0.01 ? styles.diffPositive : styles.diffBalanced) }}>{item.units > 0 ? signedNumber(item.difference) : "—"}</span></td>
           <td><div style={styles.locationList}>{item.locations.length ? item.locations.map((location) => <button key={location.label} type="button" onClick={() => onNavigate(location.target)} style={styles.locationChip}>{location.label}</button>) : <span style={styles.mutedText}>Sin ubicación</span>}</div></td>
           <td>{editing ? <input value={editDraft.observation} onChange={(e) => setEditDraft({ ...editDraft, observation: e.target.value })} style={styles.tableInput} /> : item.observation || "—"}</td>
-          {canEdit && <td><div style={styles.actionGroup}>{editing ? <><button type="button" onClick={(event) => saveProduct(event, { ...editDraft, sku: item.sku }, false)} style={styles.actionPrimary}>Guardar</button><button type="button" onClick={() => setEditingSku("")} style={styles.actionSecondary}>Cancelar</button></> : <><button type="button" onClick={() => { setEditingSku(item.sku); setEditDraft({ ...item, stock: item.stock, units_per_pallet: item.units }); }} style={styles.actionPrimary}>Editar</button>{isAdmin && <button type="button" onClick={() => deleteProduct(item.sku)} style={styles.actionDanger}>Eliminar</button>}</>}</div></td>}
+          {canEdit && <td><div style={styles.actionGroup}>{editing ? <><button type="button" onClick={(event) => saveProduct(event, { ...editDraft, sku: item.sku }, false)} style={styles.actionPrimary}>Guardar</button><button type="button" onClick={() => setEditingSku("")} style={styles.actionSecondary}>Cancelar</button></> : <><button type="button" onClick={() => onAssign(item.sku)} style={styles.assignmentButton}>Asignar posiciones</button><button type="button" onClick={() => { setEditingSku(item.sku); setEditDraft({ ...item, stock: item.stock, units_per_pallet: item.units }); }} style={styles.actionPrimary}>Editar</button>{isAdmin && <button type="button" onClick={() => deleteProduct(item.sku)} style={styles.actionDanger}>Eliminar</button>}</>}</div></td>}
         </tr>;
       })}{!rows.length && <tr><td colSpan={canEdit ? 10 : 9} style={styles.emptyTable}>No hay productos que coincidan con el filtro.</td></tr>}</tbody>
     </table></div>}
+    {history.length > 0 && <details style={styles.historyPanel}><summary>Historial de importaciones</summary><div style={styles.historyList}>{history.map((item) => <div key={item.id} style={styles.historyRow}><strong>{item.import_type === "stock" ? "Stock" : "Maestro"}</strong><span>{item.file_name}</span><span>{new Date(item.created_at).toLocaleString("es-CL")}</span><span>{item.successful_rows}/{item.total_rows} correctas</span><span>{item.error_rows} errores</span></div>)}</div></details>}
   </Section>;
 }
 
@@ -1197,6 +1294,16 @@ const styles = {
   selectionButton: { padding: "7px 11px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 9, background: "#FFFFFF", color: COLORS.turquoiseDark, fontSize: 11, fontWeight: 850, cursor: "pointer" },
   selectionButtonDanger: { padding: "7px 11px", border: "1px solid #F3A6A6", borderRadius: 9, background: "#FFF7F7", color: "#B42318", fontSize: 11, fontWeight: 850, cursor: "pointer" },
   multiSelectedCell: { position: "relative", zIndex: 2, background: "#BDF5F4", boxShadow: `inset 0 0 0 2px ${COLORS.turquoiseDark}` },
+  assignmentBanner: { padding: "11px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "#DDF9F8", borderBottom: `1px solid ${COLORS.turquoise}` },
+  assignmentButton: { padding: "7px 10px", border: 0, borderRadius: 8, background: COLORS.turquoiseDark, color: "#FFFFFF", fontSize: 10, fontWeight: 850, cursor: "pointer" },
+  importButton: { padding: "8px 11px", borderRadius: 8, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 11, fontWeight: 850, cursor: "pointer" },
+  importButtonStock: { padding: "8px 11px", borderRadius: 8, background: "#172033", color: "#FFFFFF", fontSize: 11, fontWeight: 850, cursor: "pointer" },
+  importPreview: { marginBottom: 14, padding: 14, display: "grid", gap: 10, border: `1px solid ${COLORS.turquoise}`, borderRadius: 12, background: "#F7FFFF" },
+  importStats: { display: "flex", gap: 8, flexWrap: "wrap" },
+  importErrors: { marginTop: 8, maxHeight: 150, overflowY: "auto", display: "grid", gap: 4, color: "#B42318", fontSize: 11 },
+  historyPanel: { marginTop: 14, padding: 12, border: `1px solid ${COLORS.border}`, borderRadius: 10, background: "#FBFDFE" },
+  historyList: { marginTop: 10, display: "grid", gap: 6 },
+  historyRow: { padding: 8, display: "grid", gridTemplateColumns: "80px minmax(160px,1fr) 160px 110px 80px", gap: 8, borderBottom: `1px solid ${COLORS.border}`, fontSize: 10 },
   masterSummary: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, marginBottom: 14 },
   summaryCard: { padding: 14, display: "grid", gap: 3, border: `1px solid ${COLORS.border}`, borderRadius: 12, background: "#F7FFFF" },
   summaryCardWarning: { background: "#FFFAEB", borderColor: "#FEC84B" },
