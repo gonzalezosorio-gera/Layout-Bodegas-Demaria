@@ -206,9 +206,7 @@ export default function App() {
   }
 
   if (authLoading) return <LoadingScreen text="Verificando sesión..." />;
-  if (recoveryMode && session) {
-    return <PasswordRecoveryScreen onComplete={() => setRecoveryMode(false)} />;
-  }
+  if (recoveryMode && session) return <PasswordRecoveryScreen onComplete={() => setRecoveryMode(false)} />;
   if (!session) return <LoginScreen />;
   if (dataLoading || !profile) return <LoadingScreen text="Cargando ubicaciones..." />;
 
@@ -263,11 +261,13 @@ export default function App() {
         <Tab active={mainTab === "b70"} onClick={() => setMainTab("b70")}>Bodega 70</Tab>
         <Tab active={mainTab === "b60"} onClick={() => setMainTab("b60")}>Bodega 60</Tab>
         <Tab active={mainTab === "master"} onClick={() => setMainTab("master")}>Maestro de Productos</Tab>
+        {profile.role === "admin" && <Tab active={mainTab === "admin"} onClick={() => setMainTab("admin")}>Administración</Tab>}
       </nav>
       <main style={styles.content}>
         {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} />}
         {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} />}
         {mainTab === "master" && <MaestroProductos />}
+        {mainTab === "admin" && profile.role === "admin" && <AdminProfiles currentUserId={session.user.id} />}
       </main>
     </div>
   );
@@ -285,71 +285,32 @@ function LoginScreen() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  async function handleLogin(event) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    setMessage("");
-    const result = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (result.error) setError(result.error.message);
+  async function submit(event) {
+    event.preventDefault(); setLoading(true); setError(""); setMessage("");
+    if (mode === "login") {
+      const result = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (result.error) setError(result.error.message);
+    } else {
+      const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}`;
+      const result = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+      if (result.error) setError(result.error.message);
+      else setMessage("Enviamos un enlace de recuperación. Abre el correo más reciente.");
+    }
     setLoading(false);
   }
 
-  async function handleReset(event) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    setMessage("");
-    const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}`;
-    const result = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
-    if (result.error) setError(result.error.message);
-    else setMessage("Enviamos un enlace de recuperación. Revisa tu correo y abre el enlace más reciente.");
-    setLoading(false);
-  }
-
-  return (
-    <div style={styles.authPage}>
-      <form onSubmit={mode === "login" ? handleLogin : handleReset} style={styles.loginCard}>
-        <div style={styles.loginMark}>D</div>
-        <p style={styles.eyebrow}>DEMARÍA</p>
-        <h1 style={styles.loginTitle}>{mode === "login" ? "Layout de Bodegas" : "Recuperar contraseña"}</h1>
-        <p style={styles.loginText}>
-          {mode === "login"
-            ? "Ingresa con tu correo y contraseña autorizados."
-            : "Escribe tu correo. Recibirás un enlace para crear una nueva contraseña."}
-        </p>
-
-        <label style={styles.fieldLabel}>Correo</label>
-        <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" style={styles.loginInput} />
-
-        {mode === "login" && (
-          <>
-            <label style={styles.fieldLabel}>Contraseña</label>
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" style={styles.loginInput} />
-          </>
-        )}
-
-        {error && <div style={styles.loginError}>{translateAuthError(error)}</div>}
-        {message && <div style={styles.loginSuccess}>{message}</div>}
-
-        <button type="submit" disabled={loading} style={styles.loginButton}>
-          {loading ? "Procesando..." : mode === "login" ? "Ingresar" : "Enviar enlace"}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setMode(mode === "login" ? "reset" : "login");
-            setError("");
-            setMessage("");
-          }}
-          style={styles.linkButton}
-        >
-          {mode === "login" ? "Olvidé mi contraseña" : "Volver al inicio de sesión"}
-        </button>
-      </form>
-    </div>
-  );
+  return <div style={styles.authPage}><form onSubmit={submit} style={styles.loginCard}>
+    <div style={styles.loginMark}>D</div><p style={styles.eyebrow}>DEMARÍA</p>
+    <h1 style={styles.loginTitle}>{mode === "login" ? "Layout de Bodegas" : "Recuperar contraseña"}</h1>
+    <p style={styles.loginText}>{mode === "login" ? "Ingresa con tu correo y contraseña autorizados." : "Escribe tu correo para recibir un enlace de recuperación."}</p>
+    <label style={styles.fieldLabel}>Correo</label>
+    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" style={styles.loginInput} />
+    {mode === "login" && <><label style={styles.fieldLabel}>Contraseña</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" style={styles.loginInput} /></>}
+    {error && <div style={styles.loginError}>{translateAuthError(error)}</div>}
+    {message && <div style={styles.loginSuccess}>{message}</div>}
+    <button type="submit" disabled={loading} style={styles.loginButton}>{loading ? "Procesando..." : mode === "login" ? "Ingresar" : "Enviar enlace"}</button>
+    <button type="button" onClick={() => { setMode(mode === "login" ? "reset" : "login"); setError(""); setMessage(""); }} style={styles.linkButton}>{mode === "login" ? "Olvidé mi contraseña" : "Volver al inicio de sesión"}</button>
+  </form></div>;
 }
 
 function PasswordRecoveryScreen({ onComplete }) {
@@ -359,66 +320,33 @@ function PasswordRecoveryScreen({ onComplete }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  async function handleUpdate(event) {
-    event.preventDefault();
-    setError("");
-    setMessage("");
-
-    if (password.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
-      return;
-    }
-    if (password !== confirmation) {
-      setError("Las contraseñas no coinciden.");
-      return;
-    }
-
+  async function update(event) {
+    event.preventDefault(); setError(""); setMessage("");
+    if (password.length < 8) return setError("La contraseña debe tener al menos 8 caracteres.");
+    if (password !== confirmation) return setError("Las contraseñas no coinciden.");
     setLoading(true);
     const result = await supabase.auth.updateUser({ password });
-    if (result.error) {
-      setError(translateAuthError(result.error.message));
-      setLoading(false);
-      return;
-    }
-
-    setMessage("Contraseña actualizada correctamente. Volverás al inicio de sesión.");
-    window.setTimeout(async () => {
-      await supabase.auth.signOut();
-      onComplete();
-    }, 1400);
+    if (result.error) { setError(translateAuthError(result.error.message)); setLoading(false); return; }
+    setMessage("Contraseña actualizada. Volverás al inicio de sesión.");
+    window.setTimeout(async () => { await supabase.auth.signOut(); onComplete(); }, 1400);
   }
 
-  return (
-    <div style={styles.authPage}>
-      <form onSubmit={handleUpdate} style={styles.loginCard}>
-        <div style={styles.loginMark}>D</div>
-        <p style={styles.eyebrow}>DEMARÍA</p>
-        <h1 style={styles.loginTitle}>Nueva contraseña</h1>
-        <p style={styles.loginText}>Crea una contraseña de al menos 8 caracteres.</p>
-
-        <label style={styles.fieldLabel}>Nueva contraseña</label>
-        <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete="new-password" style={styles.loginInput} />
-
-        <label style={styles.fieldLabel}>Confirmar contraseña</label>
-        <input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required minLength={8} autoComplete="new-password" style={styles.loginInput} />
-
-        {error && <div style={styles.loginError}>{error}</div>}
-        {message && <div style={styles.loginSuccess}>{message}</div>}
-
-        <button type="submit" disabled={loading} style={styles.loginButton}>
-          {loading ? "Actualizando..." : "Guardar nueva contraseña"}
-        </button>
-      </form>
-    </div>
-  );
+  return <div style={styles.authPage}><form onSubmit={update} style={styles.loginCard}>
+    <div style={styles.loginMark}>D</div><p style={styles.eyebrow}>DEMARÍA</p><h1 style={styles.loginTitle}>Nueva contraseña</h1>
+    <p style={styles.loginText}>Crea una contraseña de al menos 8 caracteres.</p>
+    <label style={styles.fieldLabel}>Nueva contraseña</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" style={styles.loginInput} />
+    <label style={styles.fieldLabel}>Confirmar contraseña</label><input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} required minLength={8} autoComplete="new-password" style={styles.loginInput} />
+    {error && <div style={styles.loginError}>{error}</div>}{message && <div style={styles.loginSuccess}>{message}</div>}
+    <button type="submit" disabled={loading} style={styles.loginButton}>{loading ? "Actualizando..." : "Guardar nueva contraseña"}</button>
+  </form></div>;
 }
 
 function translateAuthError(message) {
-  const normalized = String(message || "").toLowerCase();
-  if (normalized.includes("invalid login credentials")) return "Correo o contraseña incorrectos.";
-  if (normalized.includes("email not confirmed")) return "El correo todavía no está confirmado.";
-  if (normalized.includes("expired") || normalized.includes("otp")) return "El enlace es inválido o expiró. Solicita uno nuevo.";
-  if (normalized.includes("rate limit")) return "Se alcanzó el límite de correos. Espera unos minutos e inténtalo nuevamente.";
+  const value = String(message || "").toLowerCase();
+  if (value.includes("invalid login credentials")) return "Correo o contraseña incorrectos.";
+  if (value.includes("email not confirmed")) return "El correo todavía no está confirmado.";
+  if (value.includes("expired") || value.includes("otp")) return "El enlace es inválido o expiró. Solicita uno nuevo.";
+  if (value.includes("rate limit")) return "Se alcanzó el límite de correos. Espera unos minutos.";
   return message;
 }
 
@@ -450,7 +378,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V4.1 recuperación</span>
+        <span style={styles.status}>V4.2 perfiles</span>
       </div>
       {children}
     </section>
@@ -917,6 +845,87 @@ function Placeholder({ code, title, text }) {
   );
 }
 
+function AdminProfiles({ currentUserId }) {
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function loadProfiles() {
+    setLoading(true); setError("");
+    const result = await supabase.from("profiles").select("id, display_name, role, created_at, updated_at").order("display_name");
+    if (result.error) setError(result.error.message);
+    else setProfiles(result.data ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => { loadProfiles(); }, []);
+
+  async function changeRole(id, role) {
+    if (id === currentUserId) return setError("Por seguridad, no puedes cambiar tu propio rol desde la aplicación.");
+    setSavingId(id); setError(""); setMessage("");
+    const result = await supabase.from("profiles").update({ role, updated_at: new Date().toISOString() }).eq("id", id).select("id, role").single();
+    if (result.error) setError(result.error.message);
+    else {
+      setProfiles((current) => current.map((item) => item.id === id ? { ...item, role } : item));
+      setMessage("Rol actualizado correctamente.");
+    }
+    setSavingId("");
+  }
+
+  if (loading) return <LoadingPanel text="Cargando perfiles..." />;
+
+  return <Section title="Administración de perfiles" description="Asigna permisos de consulta o edición a usuarios existentes.">
+    <div style={styles.adminToolbar}>
+      <div><strong>{profiles.length} usuarios</strong><p style={styles.adminHelp}>Los usuarios se crean en Supabase Authentication. Aquí se administra únicamente el rol operativo.</p></div>
+      <button type="button" onClick={loadProfiles} style={styles.selectionButton}>Actualizar lista</button>
+    </div>
+    {error && <div style={styles.errorBannerInline}>{error}</div>}
+    {message && <div style={styles.successBannerInline}>{message}</div>}
+    <div style={styles.profileList}>
+      {profiles.map((item) => {
+        const isCurrent = item.id === currentUserId;
+        return <article key={item.id} style={styles.profileCard}>
+          <div style={styles.profileIdentity}>
+            <div style={styles.profileAvatar}>{(item.display_name || "U").slice(0,2).toUpperCase()}</div>
+            <div><strong>{item.display_name || "Usuario sin nombre"}</strong><small style={styles.profileId}>{item.id}</small></div>
+          </div>
+          <div style={styles.roleControl}>
+            <span style={{ ...styles.roleBadge, ...roleBadgeStyles[item.role] }}>{roleLabels[item.role]}</span>
+            <select value={item.role} disabled={isCurrent || savingId === item.id} onChange={(event) => changeRole(item.id, event.target.value)} style={styles.roleSelect} aria-label={`Rol de ${item.display_name}`}>
+              <option value="viewer">Viewer · Solo lectura</option>
+              <option value="editor">Editor · Puede editar</option>
+              <option value="admin">Administrador · Control total</option>
+            </select>
+            {isCurrent && <small style={styles.currentUserTag}>Tu usuario</small>}
+          </div>
+        </article>;
+      })}
+    </div>
+    <div style={styles.permissionGrid}>
+      <PermissionCard role="Viewer" color="#667085" items={["Consultar layouts", "Buscar SKU y coordenadas", "No puede editar, pegar ni borrar"]} />
+      <PermissionCard role="Editor" color="#009A9B" items={["Todo lo de Viewer", "Editar SKU", "Copiar, pegar y borrar selecciones"]} />
+      <PermissionCard role="Administrador" color="#172033" items={["Todo lo de Editor", "Abrir Administración", "Cambiar roles de otros usuarios"]} />
+    </div>
+  </Section>;
+}
+
+const roleLabels = { viewer: "Viewer", editor: "Editor", admin: "Administrador" };
+const roleBadgeStyles = {
+  viewer: { background: "#F2F4F7", color: "#475467" },
+  editor: { background: "#DDF9F8", color: "#007C7D" },
+  admin: { background: "#E4E7EC", color: "#172033" },
+};
+
+function PermissionCard({ role, color, items }) {
+  return <div style={styles.permissionCard}><strong style={{ color }}>{role}</strong>{items.map((item) => <span key={item}>✓ {item}</span>)}</div>;
+}
+
+function LoadingPanel({ text }) {
+  return <div style={styles.loadingPanel}><div style={styles.spinner} /><strong>{text}</strong></div>;
+}
+
 function MaestroProductos() {
   return (
     <Section title="Maestro de Productos" description="SKU, stock, palletizado, ubicaciones y diferencias.">
@@ -979,6 +988,22 @@ const styles = {
   loginError: { padding: 10, borderRadius: 9, background: "#FFF1F1", color: "#B42318", fontSize: 12 },
   loginSuccess: { padding: 10, borderRadius: 9, background: "#ECFDF3", color: "#027A48", fontSize: 12 },
   linkButton: { padding: "8px 10px", border: 0, background: "transparent", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800, cursor: "pointer" },
+  adminToolbar: { padding: "0 0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap", borderBottom: `1px solid ${COLORS.border}` },
+  adminHelp: { margin: "5px 0 0", color: COLORS.muted, fontSize: 12 },
+  profileList: { marginTop: 16, display: "grid", gap: 10 },
+  profileCard: { padding: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap", border: `1px solid ${COLORS.border}`, borderRadius: 12, background: "#FBFDFE" },
+  profileIdentity: { display: "flex", alignItems: "center", gap: 11 },
+  profileAvatar: { width: 38, height: 38, display: "grid", placeItems: "center", borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 11, fontWeight: 900 },
+  profileId: { maxWidth: 300, marginTop: 3, display: "block", overflow: "hidden", color: COLORS.muted, fontSize: 9, textOverflow: "ellipsis" },
+  roleControl: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  roleBadge: { padding: "6px 9px", borderRadius: 999, fontSize: 10, fontWeight: 850 },
+  roleSelect: { padding: "8px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#FFFFFF", color: COLORS.text, fontSize: 12, fontWeight: 700 },
+  currentUserTag: { color: COLORS.turquoiseDark, fontSize: 10, fontWeight: 850 },
+  permissionGrid: { marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10 },
+  permissionCard: { padding: 14, display: "grid", gap: 7, border: `1px solid ${COLORS.border}`, borderRadius: 12, background: "#FFFFFF", color: COLORS.muted, fontSize: 11 },
+  errorBannerInline: { marginTop: 12, padding: 10, borderRadius: 9, background: "#FFF1F1", color: "#B42318", fontSize: 12 },
+  successBannerInline: { marginTop: 12, padding: 10, borderRadius: 9, background: "#ECFDF3", color: "#027A48", fontSize: 12 },
+  loadingPanel: { minHeight: 240, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, border: `1px solid ${COLORS.border}`, borderRadius: 14, background: "#FFFFFF" },
   loadingCard: { padding: 26, display: "flex", alignItems: "center", gap: 12, borderRadius: 16, background: "#FFFFFF", boxShadow: "0 18px 50px rgba(16,24,40,.12)" },
   spinner: { width: 20, height: 20, border: "3px solid #DDF9F8", borderTopColor: COLORS.turquoiseDark, borderRadius: 999 },
   signOutButton: { padding: "7px 9px", border: `1px solid ${COLORS.border}`, borderRadius: 8, background: "#FFFFFF", color: COLORS.muted, fontSize: 11, fontWeight: 800, cursor: "pointer" },
