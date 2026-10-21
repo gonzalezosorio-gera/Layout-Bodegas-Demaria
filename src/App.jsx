@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { supabase } from "./supabaseClient";
 
 const COLORS = {
   turquoise: "#00C1C2",
@@ -25,18 +26,158 @@ const RACKS = [
 ];
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [syncState, setSyncState] = useState("idle");
+  const [appError, setAppError] = useState("");
   const [mainTab, setMainTab] = useState("b70");
   const [sub70, setSub70] = useState("racks");
   const [sub60, setSub60] = useState("envases");
   const [searchSku, setSearchSku] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [rackCells, setRackCells] = useState({
-    "1-3-1": "10601105",
-    "4-2-3": "10601105",
-  });
-  const [driveCells, setDriveCells] = useState({
-    "1-3-1": "10601105",
-  });
+  const [rackCells, setRackCells] = useState({});
+  const [driveCells, setDriveCells] = useState({});
+  const hydratedRef = useRef(false);
+  const previousRackRef = useRef({});
+  const previousDriveRef = useRef({});
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) setAppError(error.message);
+      setSession(data.session ?? null);
+      setAuthLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      if (!nextSession) {
+        setProfile(null);
+        setRackCells({});
+        setDriveCells({});
+        hydratedRef.current = false;
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!session?.user) return;
+    let cancelled = false;
+
+    async function loadApplicationData() {
+      setDataLoading(true);
+      setAppError("");
+
+      const [profileResult, locationsResult] = await Promise.all([
+        supabase.from("profiles").select("display_name, role").eq("id", session.user.id).single(),
+        supabase
+          .from("warehouse_locations")
+          .select("area, unit_number, level, position, sku")
+          .eq("warehouse", "70")
+          .in("area", ["racks_selectivos", "drive_in"]),
+      ]);
+
+      if (cancelled) return;
+      if (profileResult.error) setAppError(profileResult.error.message);
+      if (locationsResult.error) setAppError(locationsResult.error.message);
+
+      setProfile(profileResult.data ?? { display_name: session.user.email, role: "viewer" });
+
+      const nextRacks = {};
+      const nextDrive = {};
+      (locationsResult.data ?? []).forEach((row) => {
+        const key = `${row.unit_number}-${row.level}-${row.position}`;
+        if (row.area === "racks_selectivos") nextRacks[key] = row.sku;
+        if (row.area === "drive_in") nextDrive[key] = row.sku;
+      });
+
+      previousRackRef.current = nextRacks;
+      previousDriveRef.current = nextDrive;
+      setRackCells(nextRacks);
+      setDriveCells(nextDrive);
+      hydratedRef.current = true;
+      setDataLoading(false);
+    }
+
+    loadApplicationData();
+    return () => { cancelled = true; };
+  }, [session?.user?.id]);
+
+  const canEdit = profile?.role === "admin" || profile?.role === "editor";
+
+  useEffect(() => {
+    if (!hydratedRef.current || !session?.user || !canEdit) return;
+    const timer = window.setTimeout(() => syncArea("racks_selectivos", rackCells, previousRackRef), 650);
+    return () => window.clearTimeout(timer);
+  }, [rackCells, session?.user?.id, canEdit]);
+
+  useEffect(() => {
+    if (!hydratedRef.current || !session?.user || !canEdit) return;
+    const timer = window.setTimeout(() => syncArea("drive_in", driveCells, previousDriveRef), 650);
+    return () => window.clearTimeout(timer);
+  }, [driveCells, session?.user?.id, canEdit]);
+
+  async function syncArea(area, currentCells, previousRef) {
+    const previous = previousRef.current;
+    const changedEntries = Object.entries(currentCells).filter(([key, value]) => value !== previous[key]);
+    const deletedKeys = Object.keys(previous).filter((key) => !(key in currentCells) || !String(currentCells[key] ?? "").trim());
+    if (!changedEntries.length && !deletedKeys.length) return;
+
+    setSyncState("saving");
+    setAppError("");
+
+    const rows = changedEntries
+      .filter(([, value]) => String(value ?? "").trim())
+      .map(([key, value]) => {
+        const [unitNumber, level, position] = key.split("-").map(Number);
+        return {
+          warehouse: "70",
+          area,
+          unit_number: unitNumber,
+          level,
+          position,
+          sku: String(value).trim(),
+          updated_by: session.user.id,
+          updated_at: new Date().toISOString(),
+        };
+      });
+
+    let error = null;
+    if (rows.length) {
+      const result = await supabase
+        .from("warehouse_locations")
+        .upsert(rows, { onConflict: "warehouse,area,unit_number,level,position" });
+      error = result.error;
+    }
+
+    if (!error && deletedKeys.length) {
+      for (const key of deletedKeys) {
+        const [unitNumber, level, position] = key.split("-").map(Number);
+        const result = await supabase
+          .from("warehouse_locations")
+          .delete()
+          .eq("warehouse", "70")
+          .eq("area", area)
+          .eq("unit_number", unitNumber)
+          .eq("level", level)
+          .eq("position", position);
+        if (result.error) { error = result.error; break; }
+      }
+    }
+
+    if (error) {
+      setSyncState("error");
+      setAppError(error.message);
+      return;
+    }
+
+    previousRef.current = { ...currentCells };
+    setSyncState("saved");
+    window.setTimeout(() => setSyncState("idle"), 1800);
+  }
 
   const normalizedSearch = searchSku.trim().toLowerCase();
   const searchResults = normalizedSearch
@@ -45,25 +186,13 @@ export default function App() {
           .filter(([, sku]) => String(sku).toLowerCase().includes(normalizedSearch))
           .map(([key, sku]) => {
             const [rack, level, position] = key.split("-");
-            return {
-              id: `rack-${key}`,
-              sku,
-              area: "Racks Selectivos",
-              coordinate: `RACK ${rack} · N${level} · P${position}`,
-              target: "racks",
-            };
+            return { id: `rack-${key}`, sku, area: "Racks Selectivos", coordinate: `RACK ${rack} · N${level} · P${position}`, target: "racks" };
           }),
         ...Object.entries(driveCells)
           .filter(([, sku]) => String(sku).toLowerCase().includes(normalizedSearch))
           .map(([key, sku]) => {
             const [street, level, depth] = key.split("-");
-            return {
-              id: `drive-${key}`,
-              sku,
-              area: "Racks Drive In",
-              coordinate: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`,
-              target: "drive",
-            };
+            return { id: `drive-${key}`, sku, area: "Racks Drive In", coordinate: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`, target: "drive" };
           }),
       ]
     : [];
@@ -74,6 +203,14 @@ export default function App() {
     setSearchOpen(false);
   }
 
+  if (authLoading) return <LoadingScreen text="Verificando sesión..." />;
+  if (!session) return <LoginScreen />;
+  if (dataLoading || !profile) return <LoadingScreen text="Cargando ubicaciones..." />;
+
+  const displayName = profile.display_name || session.user.email || "Usuario";
+  const initials = displayName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  const roleLabel = profile.role === "admin" ? "Administrador" : profile.role === "editor" ? "Editor" : "Viewer";
+
   return (
     <div style={styles.app}>
       <header style={styles.header}>
@@ -82,106 +219,88 @@ export default function App() {
           <h1 style={styles.title}>Layout de Bodegas</h1>
           <p style={styles.subtitle}>Gestión visual de ubicaciones, materiales y productos.</p>
         </div>
-
         <div style={styles.headerTools}>
           <div style={styles.searchWrap}>
             <div style={styles.searchBox}>
               <span style={styles.searchIcon}>⌕</span>
-              <input
-                value={searchSku}
-                onChange={(event) => {
-                  setSearchSku(event.target.value);
-                  setSearchOpen(true);
-                }}
-                onFocus={() => setSearchOpen(true)}
-                placeholder="Buscar SKU"
-                aria-label="Buscar SKU"
-                style={styles.searchInput}
-              />
-              {searchSku && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchSku("");
-                    setSearchOpen(false);
-                  }}
-                  style={styles.clearSearch}
-                  aria-label="Limpiar búsqueda"
-                >
-                  ×
-                </button>
-              )}
+              <input value={searchSku} onChange={(event) => { setSearchSku(event.target.value); setSearchOpen(true); }} onFocus={() => setSearchOpen(true)} placeholder="Buscar SKU" aria-label="Buscar SKU" style={styles.searchInput} />
+              {searchSku && <button type="button" onClick={() => { setSearchSku(""); setSearchOpen(false); }} style={styles.clearSearch} aria-label="Limpiar búsqueda">×</button>}
             </div>
-
             {searchOpen && searchSku.trim() && (
               <div style={styles.searchPanel}>
                 <div style={styles.searchSummary}>
-                  <div>
-                    <span style={styles.searchSummaryLabel}>SKU buscado</span>
-                    <strong style={styles.searchSkuValue}>{searchSku.trim()}</strong>
-                  </div>
-                  <div style={styles.positionCount}>
-                    <strong>{searchResults.length}</strong>
-                    <span>{searchResults.length === 1 ? "posición" : "posiciones"}</span>
-                  </div>
+                  <div><span style={styles.searchSummaryLabel}>SKU buscado</span><strong style={styles.searchSkuValue}>{searchSku.trim()}</strong></div>
+                  <div style={styles.positionCount}><strong>{searchResults.length}</strong><span>{searchResults.length === 1 ? "posición" : "posiciones"}</span></div>
                 </div>
-
                 <div style={styles.resultList}>
-                  {searchResults.length ? (
-                    searchResults.map((result) => (
-                      <button
-                        key={result.id}
-                        type="button"
-                        onClick={() => navigateToResult(result)}
-                        style={styles.resultItem}
-                      >
-                        <span style={styles.resultMarker}>●</span>
-                        <span style={styles.resultText}>
-                          <strong>{result.coordinate}</strong>
-                          <small>{result.area}</small>
-                        </span>
-                        <span style={styles.resultArrow}>›</span>
-                      </button>
-                    ))
-                  ) : (
-                    <div style={styles.noResults}>No hay posiciones asignadas a este SKU.</div>
-                  )}
+                  {searchResults.length ? searchResults.map((result) => (
+                    <button key={result.id} type="button" onClick={() => navigateToResult(result)} style={styles.resultItem}>
+                      <span style={styles.resultMarker}>●</span><span style={styles.resultText}><strong>{result.coordinate}</strong><small>{result.area}</small></span><span style={styles.resultArrow}>›</span>
+                    </button>
+                  )) : <div style={styles.noResults}>No hay posiciones asignadas a este SKU.</div>}
                 </div>
               </div>
             )}
           </div>
-
           <div style={styles.userCard}>
-            <div style={styles.userAvatar}>AD</div>
-            <div style={styles.userText}>
-              <strong>Administrador</strong>
-              <span>Usuario activo</span>
-            </div>
-            <span style={styles.onlineDot} />
+            <div style={styles.userAvatar}>{initials || "US"}</div>
+            <div style={styles.userText}><strong>{displayName}</strong><span>{roleLabel} · {syncState === "saving" ? "Guardando..." : syncState === "saved" ? "Guardado" : syncState === "error" ? "Error al guardar" : "En línea"}</span></div>
+            <span style={{ ...styles.onlineDot, ...(syncState === "error" ? styles.errorDot : {}) }} />
+            <button type="button" onClick={() => supabase.auth.signOut()} style={styles.signOutButton}>Salir</button>
           </div>
         </div>
       </header>
+
+      {appError && <div style={styles.errorBanner}>{appError}</div>}
+      {!canEdit && <div style={styles.viewerBanner}>Modo Viewer: puedes consultar y buscar, pero no modificar ubicaciones.</div>}
 
       <nav style={styles.mainNav} aria-label="Navegación principal">
         <Tab active={mainTab === "b70"} onClick={() => setMainTab("b70")}>Bodega 70</Tab>
         <Tab active={mainTab === "b60"} onClick={() => setMainTab("b60")}>Bodega 60</Tab>
         <Tab active={mainTab === "master"} onClick={() => setMainTab("master")}>Maestro de Productos</Tab>
       </nav>
-
       <main style={styles.content}>
-        {mainTab === "b70" && (
-          <Bodega70
-            activeTab={sub70}
-            onTabChange={setSub70}
-            rackCells={rackCells}
-            setRackCells={setRackCells}
-            driveCells={driveCells}
-            setDriveCells={setDriveCells}
-          />
-        )}
+        {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} />}
         {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} />}
         {mainTab === "master" && <MaestroProductos />}
       </main>
+    </div>
+  );
+}
+
+function LoadingScreen({ text }) {
+  return <div style={styles.authPage}><div style={styles.loadingCard}><div style={styles.spinner} /><strong>{text}</strong></div></div>;
+}
+
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    const result = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (result.error) setError(result.error.message);
+    setLoading(false);
+  }
+
+  return (
+    <div style={styles.authPage}>
+      <form onSubmit={handleSubmit} style={styles.loginCard}>
+        <div style={styles.loginMark}>D</div>
+        <p style={styles.eyebrow}>DEMARÍA</p>
+        <h1 style={styles.loginTitle}>Layout de Bodegas</h1>
+        <p style={styles.loginText}>Ingresa con tu correo y contraseña autorizados.</p>
+        <label style={styles.fieldLabel}>Correo</label>
+        <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" style={styles.loginInput} />
+        <label style={styles.fieldLabel}>Contraseña</label>
+        <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" style={styles.loginInput} />
+        {error && <div style={styles.loginError}>{error}</div>}
+        <button type="submit" disabled={loading} style={styles.loginButton}>{loading ? "Ingresando..." : "Ingresar"}</button>
+      </form>
     </div>
   );
 }
@@ -214,14 +333,14 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V3.4.1 operativa</span>
+        <span style={styles.status}>V4.0 conectada</span>
       </div>
       {children}
     </section>
   );
 }
 
-function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells, setDriveCells }) {
+function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells, setDriveCells, canEdit }) {
   return (
     <Section title="Bodega 70" description="Racks selectivos y almacenamiento compacto Drive In.">
       <SubNav
@@ -229,8 +348,8 @@ function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells,
         activeTab={activeTab}
         onTabChange={onTabChange}
       />
-      {activeTab === "racks" && <RacksSelectivos cells={rackCells} setCells={setRackCells} />}
-      {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} />}
+      {activeTab === "racks" && <RacksSelectivos cells={rackCells} setCells={setRackCells} canEdit={canEdit} />}
+      {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} canEdit={canEdit} />}
     </Section>
   );
 }
@@ -251,7 +370,7 @@ function isCellSelected(selection, group, row, col) {
   return row >= bounds.rowStart && row <= bounds.rowEnd && col >= bounds.colStart && col <= bounds.colEnd;
 }
 
-function DriveIn({ cells, setCells }) {
+function DriveIn({ cells, setCells, canEdit }) {
   const [activeCell, setActiveCell] = useState("");
   const [selection, setSelection] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -277,6 +396,7 @@ function DriveIn({ cells, setCells }) {
   }
 
   function clearSelection() {
+    if (!canEdit) return;
     const keys = selectedDriveKeys();
     if (!keys.length) return;
     setCells((current) => {
@@ -301,7 +421,7 @@ function DriveIn({ cells, setCells }) {
   }
 
   function pasteSelection(text) {
-    if (!selection) return;
+    if (!canEdit || !selection) return;
     const rows = text.replace(/\r/g, "").split("\n").filter((row, index, all) => row || index < all.length - 1).map((row) => row.split("\t"));
     const bounds = selectionBounds(selection);
     const isSingleValue = rows.length === 1 && rows[0].length === 1;
@@ -381,6 +501,7 @@ function DriveIn({ cells, setCells }) {
             setSelection={setSelection}
             dragging={dragging}
             setDragging={setDragging}
+            canEdit={canEdit}
           />
         ))}
       </div>
@@ -388,7 +509,7 @@ function DriveIn({ cells, setCells }) {
   );
 }
 
-function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging }) {
+function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit }) {
   const depths = [1, 2, 3, 4, 5];
   const levels = [3, 2, 1];
 
@@ -408,7 +529,9 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
                 <input
                   key={key}
                   value={cells[key] || ""}
+                  readOnly={!canEdit}
                   onMouseDown={(event) => {
+                    if (!canEdit) return;
                     event.preventDefault();
                     setSelection({ group: street, anchor: { row, col }, focus: { row, col } });
                     setDragging(true);
@@ -420,7 +543,7 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
                       setSelection((current) => ({ ...current, focus: { row, col } }));
                     }
                   }}
-                  onChange={(event) => updateCell(street, level, depth, event.target.value)}
+                  onChange={(event) => canEdit && updateCell(street, level, depth, event.target.value)}
                   aria-label={`Calle ${street}, nivel ${level}, profundidad ${depth}`}
                   placeholder="SKU"
                   style={{
@@ -441,7 +564,7 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
   );
 }
 
-function RacksSelectivos({ cells, setCells }) {
+function RacksSelectivos({ cells, setCells, canEdit }) {
   const [activeCell, setActiveCell] = useState("");
   const [selection, setSelection] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -467,6 +590,7 @@ function RacksSelectivos({ cells, setCells }) {
   }
 
   function clearSelection() {
+    if (!canEdit) return;
     const keys = selectedRackKeys();
     if (!keys.length) return;
     setCells((current) => {
@@ -492,7 +616,7 @@ function RacksSelectivos({ cells, setCells }) {
   }
 
   function pasteSelection(text) {
-    if (!selection) return;
+    if (!canEdit || !selection) return;
     const rack = RACKS.find((item) => item.number === selection.group);
     const rows = text.replace(/\r/g, "").split("\n").filter((row, index, all) => row || index < all.length - 1).map((row) => row.split("\t"));
     const bounds = selectionBounds(selection);
@@ -574,6 +698,7 @@ function RacksSelectivos({ cells, setCells }) {
                 setSelection={setSelection}
                 dragging={dragging}
                 setDragging={setDragging}
+                canEdit={canEdit}
               />
             </div>
           ))}
@@ -583,7 +708,7 @@ function RacksSelectivos({ cells, setCells }) {
   );
 }
 
-function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging }) {
+function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit }) {
   const positions = Array.from({ length: rack.positions }, (_, index) => index + 1);
   const levels = [3, 2, 1];
 
@@ -600,7 +725,9 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, sel
               <input
                 key={key}
                 value={cells[key] || ""}
+                readOnly={!canEdit}
                 onMouseDown={(event) => {
+                  if (!canEdit) return;
                   event.preventDefault();
                   setSelection({ group: rack.number, anchor: { row, col }, focus: { row, col } });
                   setDragging(true);
@@ -612,7 +739,7 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, sel
                     setSelection((current) => ({ ...current, focus: { row, col } }));
                   }
                 }}
-                onChange={(event) => updateCell(rack.number, level, position, event.target.value)}
+                onChange={(event) => canEdit && updateCell(rack.number, level, position, event.target.value)}
                 aria-label={`Rack ${rack.number}, nivel ${level}, posición ${position}`}
                 style={{
                   ...styles.matrixCell,
@@ -724,6 +851,21 @@ const styles = {
   userAvatar: { width: 34, height: 34, display: "grid", placeItems: "center", borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 11, fontWeight: 900 },
   userText: { display: "grid", gap: 2, minWidth: 105, fontSize: 12 },
   onlineDot: { width: 8, height: 8, borderRadius: 999, background: "#22C55E", boxShadow: "0 0 0 3px #DCFCE7" },
+  authPage: { minHeight: "100vh", padding: 24, display: "grid", placeItems: "center", background: "linear-gradient(145deg,#E7FBFB,#F3F6F8 55%,#FFFFFF)" },
+  loginCard: { width: "min(390px,100%)", padding: 30, display: "grid", gap: 10, border: `1px solid ${COLORS.border}`, borderRadius: 20, background: "#FFFFFF", boxShadow: "0 24px 70px rgba(16,24,40,.14)" },
+  loginMark: { width: 52, height: 52, display: "grid", placeItems: "center", borderRadius: 15, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 24, fontWeight: 900 },
+  loginTitle: { margin: 0, fontSize: 28 },
+  loginText: { margin: "0 0 10px", color: COLORS.muted, fontSize: 14 },
+  fieldLabel: { marginTop: 5, color: COLORS.text, fontSize: 12, fontWeight: 800 },
+  loginInput: { width: "100%", padding: "12px 13px", border: `1px solid ${COLORS.border}`, borderRadius: 10, outline: "none", boxSizing: "border-box", fontSize: 14 },
+  loginButton: { marginTop: 10, padding: "12px 16px", border: 0, borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 14, fontWeight: 850, cursor: "pointer" },
+  loginError: { padding: 10, borderRadius: 9, background: "#FFF1F1", color: "#B42318", fontSize: 12 },
+  loadingCard: { padding: 26, display: "flex", alignItems: "center", gap: 12, borderRadius: 16, background: "#FFFFFF", boxShadow: "0 18px 50px rgba(16,24,40,.12)" },
+  spinner: { width: 20, height: 20, border: "3px solid #DDF9F8", borderTopColor: COLORS.turquoiseDark, borderRadius: 999 },
+  signOutButton: { padding: "7px 9px", border: `1px solid ${COLORS.border}`, borderRadius: 8, background: "#FFFFFF", color: COLORS.muted, fontSize: 11, fontWeight: 800, cursor: "pointer" },
+  errorBanner: { maxWidth: 1280, margin: "0 auto 12px", padding: "10px 13px", border: "1px solid #FDA29B", borderRadius: 10, background: "#FFF1F1", color: "#B42318", fontSize: 12 },
+  viewerBanner: { maxWidth: 1280, margin: "0 auto 12px", padding: "10px 13px", border: "1px solid #FEC84B", borderRadius: 10, background: "#FFFAEB", color: "#93370D", fontSize: 12 },
+  errorDot: { background: "#EF4444", boxShadow: "0 0 0 3px #FEE2E2" },
   mainNav: { maxWidth: 1280, margin: "0 auto 18px", padding: 6, display: "flex", gap: 6, flexWrap: "wrap", background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, boxShadow: "0 8px 24px rgba(16,24,40,.05)" },
   mainTab: { padding: "11px 17px", border: 0, borderRadius: 10, background: "transparent", color: COLORS.muted, fontSize: 14, fontWeight: 750, cursor: "pointer" },
   mainTabActive: { background: COLORS.turquoise, color: "#fff", boxShadow: "0 5px 14px rgba(0,193,194,.24)" },
