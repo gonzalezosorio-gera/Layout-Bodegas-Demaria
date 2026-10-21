@@ -29,6 +29,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [recoveryMode, setRecoveryMode] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
   const [syncState, setSyncState] = useState("idle");
   const [appError, setAppError] = useState("");
@@ -50,7 +51,8 @@ export default function App() {
       setAuthLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "PASSWORD_RECOVERY") setRecoveryMode(true);
       setSession(nextSession);
       if (!nextSession) {
         setProfile(null);
@@ -204,6 +206,9 @@ export default function App() {
   }
 
   if (authLoading) return <LoadingScreen text="Verificando sesión..." />;
+  if (recoveryMode && session) {
+    return <PasswordRecoveryScreen onComplete={() => setRecoveryMode(false)} />;
+  }
   if (!session) return <LoginScreen />;
   if (dataLoading || !profile) return <LoadingScreen text="Cargando ubicaciones..." />;
 
@@ -273,36 +278,148 @@ function LoadingScreen({ text }) {
 }
 
 function LoginScreen() {
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  async function handleSubmit(event) {
+  async function handleLogin(event) {
     event.preventDefault();
     setLoading(true);
     setError("");
+    setMessage("");
     const result = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     if (result.error) setError(result.error.message);
     setLoading(false);
   }
 
+  async function handleReset(event) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    setMessage("");
+    const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}`;
+    const result = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+    if (result.error) setError(result.error.message);
+    else setMessage("Enviamos un enlace de recuperación. Revisa tu correo y abre el enlace más reciente.");
+    setLoading(false);
+  }
+
   return (
     <div style={styles.authPage}>
-      <form onSubmit={handleSubmit} style={styles.loginCard}>
+      <form onSubmit={mode === "login" ? handleLogin : handleReset} style={styles.loginCard}>
         <div style={styles.loginMark}>D</div>
         <p style={styles.eyebrow}>DEMARÍA</p>
-        <h1 style={styles.loginTitle}>Layout de Bodegas</h1>
-        <p style={styles.loginText}>Ingresa con tu correo y contraseña autorizados.</p>
+        <h1 style={styles.loginTitle}>{mode === "login" ? "Layout de Bodegas" : "Recuperar contraseña"}</h1>
+        <p style={styles.loginText}>
+          {mode === "login"
+            ? "Ingresa con tu correo y contraseña autorizados."
+            : "Escribe tu correo. Recibirás un enlace para crear una nueva contraseña."}
+        </p>
+
         <label style={styles.fieldLabel}>Correo</label>
         <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" style={styles.loginInput} />
-        <label style={styles.fieldLabel}>Contraseña</label>
-        <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" style={styles.loginInput} />
-        {error && <div style={styles.loginError}>{error}</div>}
-        <button type="submit" disabled={loading} style={styles.loginButton}>{loading ? "Ingresando..." : "Ingresar"}</button>
+
+        {mode === "login" && (
+          <>
+            <label style={styles.fieldLabel}>Contraseña</label>
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" style={styles.loginInput} />
+          </>
+        )}
+
+        {error && <div style={styles.loginError}>{translateAuthError(error)}</div>}
+        {message && <div style={styles.loginSuccess}>{message}</div>}
+
+        <button type="submit" disabled={loading} style={styles.loginButton}>
+          {loading ? "Procesando..." : mode === "login" ? "Ingresar" : "Enviar enlace"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setMode(mode === "login" ? "reset" : "login");
+            setError("");
+            setMessage("");
+          }}
+          style={styles.linkButton}
+        >
+          {mode === "login" ? "Olvidé mi contraseña" : "Volver al inicio de sesión"}
+        </button>
       </form>
     </div>
   );
+}
+
+function PasswordRecoveryScreen({ onComplete }) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function handleUpdate(event) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+
+    if (password.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+    if (password !== confirmation) {
+      setError("Las contraseñas no coinciden.");
+      return;
+    }
+
+    setLoading(true);
+    const result = await supabase.auth.updateUser({ password });
+    if (result.error) {
+      setError(translateAuthError(result.error.message));
+      setLoading(false);
+      return;
+    }
+
+    setMessage("Contraseña actualizada correctamente. Volverás al inicio de sesión.");
+    window.setTimeout(async () => {
+      await supabase.auth.signOut();
+      onComplete();
+    }, 1400);
+  }
+
+  return (
+    <div style={styles.authPage}>
+      <form onSubmit={handleUpdate} style={styles.loginCard}>
+        <div style={styles.loginMark}>D</div>
+        <p style={styles.eyebrow}>DEMARÍA</p>
+        <h1 style={styles.loginTitle}>Nueva contraseña</h1>
+        <p style={styles.loginText}>Crea una contraseña de al menos 8 caracteres.</p>
+
+        <label style={styles.fieldLabel}>Nueva contraseña</label>
+        <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete="new-password" style={styles.loginInput} />
+
+        <label style={styles.fieldLabel}>Confirmar contraseña</label>
+        <input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required minLength={8} autoComplete="new-password" style={styles.loginInput} />
+
+        {error && <div style={styles.loginError}>{error}</div>}
+        {message && <div style={styles.loginSuccess}>{message}</div>}
+
+        <button type="submit" disabled={loading} style={styles.loginButton}>
+          {loading ? "Actualizando..." : "Guardar nueva contraseña"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function translateAuthError(message) {
+  const normalized = String(message || "").toLowerCase();
+  if (normalized.includes("invalid login credentials")) return "Correo o contraseña incorrectos.";
+  if (normalized.includes("email not confirmed")) return "El correo todavía no está confirmado.";
+  if (normalized.includes("expired") || normalized.includes("otp")) return "El enlace es inválido o expiró. Solicita uno nuevo.";
+  if (normalized.includes("rate limit")) return "Se alcanzó el límite de correos. Espera unos minutos e inténtalo nuevamente.";
+  return message;
 }
 
 function Tab({ active, onClick, children }) {
@@ -333,7 +450,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V4.0 conectada</span>
+        <span style={styles.status}>V4.1 recuperación</span>
       </div>
       {children}
     </section>
@@ -860,6 +977,8 @@ const styles = {
   loginInput: { width: "100%", padding: "12px 13px", border: `1px solid ${COLORS.border}`, borderRadius: 10, outline: "none", boxSizing: "border-box", fontSize: 14 },
   loginButton: { marginTop: 10, padding: "12px 16px", border: 0, borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 14, fontWeight: 850, cursor: "pointer" },
   loginError: { padding: 10, borderRadius: 9, background: "#FFF1F1", color: "#B42318", fontSize: 12 },
+  loginSuccess: { padding: 10, borderRadius: 9, background: "#ECFDF3", color: "#027A48", fontSize: 12 },
+  linkButton: { padding: "8px 10px", border: 0, background: "transparent", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800, cursor: "pointer" },
   loadingCard: { padding: 26, display: "flex", alignItems: "center", gap: 12, borderRadius: 16, background: "#FFFFFF", boxShadow: "0 18px 50px rgba(16,24,40,.12)" },
   spinner: { width: 20, height: 20, border: "3px solid #DDF9F8", borderTopColor: COLORS.turquoiseDark, borderRadius: 999 },
   signOutButton: { padding: "7px 9px", border: `1px solid ${COLORS.border}`, borderRadius: 8, background: "#FFFFFF", color: COLORS.muted, fontSize: 11, fontWeight: 800, cursor: "pointer" },
