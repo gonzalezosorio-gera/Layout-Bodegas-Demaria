@@ -266,7 +266,7 @@ export default function App() {
       <main style={styles.content}>
         {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} />}
         {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} />}
-        {mainTab === "master" && <MaestroProductos />}
+        {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(target) => { setMainTab("b70"); setSub70(target); }} />}
         {mainTab === "admin" && profile.role === "admin" && <AdminProfiles currentUserId={session.user.id} />}
       </main>
     </div>
@@ -378,7 +378,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V4.2 perfiles</span>
+        <span style={styles.status}>V5.0 maestro</span>
       </div>
       {children}
     </section>
@@ -926,13 +926,152 @@ function LoadingPanel({ text }) {
   return <div style={styles.loadingPanel}><div style={styles.spinner} /><strong>{text}</strong></div>;
 }
 
-function MaestroProductos() {
-  return (
-    <Section title="Maestro de Productos" description="SKU, stock, palletizado, ubicaciones y diferencias.">
-      <Placeholder code="MP" title="Maestro de Productos" text="Módulo preparado para la siguiente etapa." />
-    </Section>
-  );
+function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onNavigate }) {
+  const emptyDraft = { sku: "", description: "", stock: "", units_per_pallet: "", observation: "" };
+  const [products, setProducts] = useState([]);
+  const [draft, setDraft] = useState(emptyDraft);
+  const [editingSku, setEditingSku] = useState("");
+  const [editDraft, setEditDraft] = useState(emptyDraft);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const locationsBySku = {};
+  Object.entries(rackCells).forEach(([key, sku]) => {
+    const normalized = String(sku || "").trim();
+    if (!normalized) return;
+    const [rack, level, position] = key.split("-");
+    if (!locationsBySku[normalized]) locationsBySku[normalized] = [];
+    locationsBySku[normalized].push({ label: `RACK ${rack} · N${level} · P${position}`, target: "racks" });
+  });
+  Object.entries(driveCells).forEach(([key, sku]) => {
+    const normalized = String(sku || "").trim();
+    if (!normalized) return;
+    const [street, level, depth] = key.split("-");
+    if (!locationsBySku[normalized]) locationsBySku[normalized] = [];
+    locationsBySku[normalized].push({ label: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`, target: "drive" });
+  });
+
+  async function loadProducts() {
+    setLoading(true); setError("");
+    const result = await supabase.from("products").select("sku, description, stock, units_per_pallet, observation, updated_at").order("sku");
+    if (result.error) setError(result.error.message);
+    else setProducts(result.data ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => { loadProducts(); }, []);
+
+  function enriched(product) {
+    const stock = Number(product.stock) || 0;
+    const units = Number(product.units_per_pallet) || 0;
+    const pallets = units > 0 ? stock / units : 0;
+    const locations = locationsBySku[product.sku] ?? [];
+    const assigned = locations.length;
+    return { ...product, stock, units, pallets, locations, assigned, difference: assigned - pallets };
+  }
+
+  async function saveProduct(event, source, isNew) {
+    event.preventDefault();
+    if (!canEdit) return;
+    const sku = String(source.sku || "").trim();
+    if (!sku) return setError("El SKU es obligatorio.");
+    setSaving(true); setError(""); setMessage("");
+    const payload = {
+      sku,
+      description: String(source.description || "").trim(),
+      stock: Math.max(0, Number(source.stock) || 0),
+      units_per_pallet: Math.max(0, Number(source.units_per_pallet) || 0),
+      observation: String(source.observation || "").trim(),
+      updated_by: userId,
+      updated_at: new Date().toISOString(),
+    };
+    const result = await supabase.from("products").upsert(payload, { onConflict: "sku" }).select("sku, description, stock, units_per_pallet, observation, updated_at").single();
+    if (result.error) setError(result.error.message);
+    else {
+      setProducts((current) => [...current.filter((item) => item.sku !== sku), result.data].sort((a,b) => a.sku.localeCompare(b.sku)));
+      if (isNew) setDraft(emptyDraft);
+      setEditingSku("");
+      setMessage(isNew ? "Producto agregado correctamente." : "Producto actualizado correctamente.");
+    }
+    setSaving(false);
+  }
+
+  async function deleteProduct(sku) {
+    if (!isAdmin || !window.confirm(`¿Eliminar el producto ${sku}?`)) return;
+    setError(""); setMessage("");
+    const result = await supabase.from("products").delete().eq("sku", sku);
+    if (result.error) setError(result.error.message);
+    else { setProducts((current) => current.filter((item) => item.sku !== sku)); setMessage("Producto eliminado."); }
+  }
+
+  const rows = products.map(enriched).filter((item) => {
+    const searchMatch = `${item.sku} ${item.description} ${item.observation}`.toLowerCase().includes(query.trim().toLowerCase());
+    const statusMatch = statusFilter === "all" || (statusFilter === "deficit" && item.difference < -0.01) || (statusFilter === "balanced" && Math.abs(item.difference) <= 0.01) || (statusFilter === "surplus" && item.difference > 0.01) || (statusFilter === "unlocated" && item.assigned === 0);
+    return searchMatch && statusMatch;
+  });
+
+  const summary = products.map(enriched);
+  const deficitCount = summary.filter((item) => item.difference < -0.01).length;
+  const unlocatedCount = summary.filter((item) => item.assigned === 0).length;
+
+  return <Section title="Maestro de Productos" description="Stock, palletizado, posiciones asignadas, diferencias y ubicaciones reales.">
+    <div style={styles.masterSummary}>
+      <SummaryCard label="Productos" value={products.length} />
+      <SummaryCard label="Con déficit de posiciones" value={deficitCount} warning />
+      <SummaryCard label="Sin ubicación" value={unlocatedCount} warning={unlocatedCount > 0} />
+      <SummaryCard label="Ubicaciones ocupadas" value={Object.values(locationsBySku).reduce((total, list) => total + list.length, 0)} />
+    </div>
+
+    <div style={styles.masterToolbar}>
+      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar SKU, descripción u observación" style={styles.masterSearch} />
+      <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} style={styles.roleSelect}>
+        <option value="all">Todos los estados</option><option value="deficit">Déficit de posiciones</option><option value="balanced">Equilibrados</option><option value="surplus">Exceso de posiciones</option><option value="unlocated">Sin ubicación</option>
+      </select>
+      <button type="button" onClick={loadProducts} style={styles.selectionButton}>Actualizar</button>
+    </div>
+
+    {canEdit && <form onSubmit={(event) => saveProduct(event, draft, true)} style={styles.newProductForm}>
+      <strong style={styles.formTitle}>Nuevo producto</strong>
+      <input value={draft.sku} onChange={(event) => setDraft({ ...draft, sku: event.target.value })} placeholder="SKU" required style={styles.masterInput} />
+      <input value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder="Descripción" style={styles.masterInputWide} />
+      <input type="number" min="0" step="any" value={draft.stock} onChange={(event) => setDraft({ ...draft, stock: event.target.value })} placeholder="Stock" style={styles.masterInput} />
+      <input type="number" min="0" step="any" value={draft.units_per_pallet} onChange={(event) => setDraft({ ...draft, units_per_pallet: event.target.value })} placeholder="Cant./Pallet" style={styles.masterInput} />
+      <input value={draft.observation} onChange={(event) => setDraft({ ...draft, observation: event.target.value })} placeholder="Observación" style={styles.masterInputWide} />
+      <button type="submit" disabled={saving} style={styles.loginButton}>{saving ? "Guardando..." : "Agregar producto"}</button>
+    </form>}
+
+    {error && <div style={styles.errorBannerInline}>{error}</div>}{message && <div style={styles.successBannerInline}>{message}</div>}
+    {loading ? <LoadingPanel text="Cargando maestro..." /> : <div style={styles.masterTableWrap}><style>{`.master-v5 th{padding:10px 8px;background:#00C1C2;color:white;text-align:left;font-weight:900;white-space:nowrap}.master-v5 td{padding:9px 8px;border-bottom:1px solid #D8E0E7;vertical-align:top}`}</style><table className="master-v5" style={styles.masterTable}>
+      <thead><tr><th>SKU</th><th>Descripción</th><th>Stock</th><th>Cant./Pallet</th><th>Pallets Eq.</th><th>Posiciones</th><th>Diferencia</th><th>Ubicaciones</th><th>Observación</th>{canEdit && <th>Acciones</th>}</tr></thead>
+      <tbody>{rows.map((item) => {
+        const editing = editingSku === item.sku;
+        return <tr key={item.sku}>
+          <td><strong>{item.sku}</strong></td>
+          <td>{editing ? <input value={editDraft.description} onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })} style={styles.tableInput} /> : item.description || "—"}</td>
+          <td>{editing ? <input type="number" min="0" step="any" value={editDraft.stock} onChange={(e) => setEditDraft({ ...editDraft, stock: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.stock)}</td>
+          <td>{editing ? <input type="number" min="0" step="any" value={editDraft.units_per_pallet} onChange={(e) => setEditDraft({ ...editDraft, units_per_pallet: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.units)}</td>
+          <td>{item.units > 0 ? item.pallets.toFixed(2) : "—"}</td>
+          <td><strong>{item.assigned}</strong></td>
+          <td><span style={{ ...styles.differenceBadge, ...(item.difference < -0.01 ? styles.diffNegative : item.difference > 0.01 ? styles.diffPositive : styles.diffBalanced) }}>{item.units > 0 ? signedNumber(item.difference) : "—"}</span></td>
+          <td><div style={styles.locationList}>{item.locations.length ? item.locations.map((location) => <button key={location.label} type="button" onClick={() => onNavigate(location.target)} style={styles.locationChip}>{location.label}</button>) : <span style={styles.mutedText}>Sin ubicación</span>}</div></td>
+          <td>{editing ? <input value={editDraft.observation} onChange={(e) => setEditDraft({ ...editDraft, observation: e.target.value })} style={styles.tableInput} /> : item.observation || "—"}</td>
+          {canEdit && <td><div style={styles.actionGroup}>{editing ? <><button type="button" onClick={(event) => saveProduct(event, { ...editDraft, sku: item.sku }, false)} style={styles.actionPrimary}>Guardar</button><button type="button" onClick={() => setEditingSku("")} style={styles.actionSecondary}>Cancelar</button></> : <><button type="button" onClick={() => { setEditingSku(item.sku); setEditDraft({ ...item, stock: item.stock, units_per_pallet: item.units }); }} style={styles.actionPrimary}>Editar</button>{isAdmin && <button type="button" onClick={() => deleteProduct(item.sku)} style={styles.actionDanger}>Eliminar</button>}</>}</div></td>}
+        </tr>;
+      })}{!rows.length && <tr><td colSpan={canEdit ? 10 : 9} style={styles.emptyTable}>No hay productos que coincidan con el filtro.</td></tr>}</tbody>
+    </table></div>}
+  </Section>;
 }
+
+function SummaryCard({ label, value, warning }) {
+  return <div style={{ ...styles.summaryCard, ...(warning ? styles.summaryCardWarning : {}) }}><strong>{value}</strong><span>{label}</span></div>;
+}
+
+function formatNumber(value) { return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 2 }).format(Number(value) || 0); }
+function signedNumber(value) { const number = Number(value) || 0; return `${number > 0 ? "+" : ""}${number.toFixed(2)}`; }
 
 const rackPlacements = {
   rack1: { gridColumn: "1 / 13", gridRow: "1" },
@@ -1058,6 +1197,28 @@ const styles = {
   selectionButton: { padding: "7px 11px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 9, background: "#FFFFFF", color: COLORS.turquoiseDark, fontSize: 11, fontWeight: 850, cursor: "pointer" },
   selectionButtonDanger: { padding: "7px 11px", border: "1px solid #F3A6A6", borderRadius: 9, background: "#FFF7F7", color: "#B42318", fontSize: 11, fontWeight: 850, cursor: "pointer" },
   multiSelectedCell: { position: "relative", zIndex: 2, background: "#BDF5F4", boxShadow: `inset 0 0 0 2px ${COLORS.turquoiseDark}` },
+  masterSummary: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, marginBottom: 14 },
+  summaryCard: { padding: 14, display: "grid", gap: 3, border: `1px solid ${COLORS.border}`, borderRadius: 12, background: "#F7FFFF" },
+  summaryCardWarning: { background: "#FFFAEB", borderColor: "#FEC84B" },
+  masterToolbar: { marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap" },
+  masterSearch: { minWidth: 280, flex: 1, padding: "10px 12px", border: `1px solid ${COLORS.border}`, borderRadius: 9, outline: "none" },
+  newProductForm: { marginBottom: 14, padding: 14, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", border: `1px solid ${COLORS.border}`, borderRadius: 12, background: "#FBFDFE" },
+  formTitle: { width: "100%", fontSize: 13 },
+  masterInput: { width: 130, padding: "9px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 8, boxSizing: "border-box" },
+  masterInputWide: { minWidth: 210, flex: 1, padding: "9px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 8, boxSizing: "border-box" },
+  masterTableWrap: { overflowX: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 12 },
+  masterTable: { width: "100%", minWidth: 1380, borderCollapse: "collapse", background: "#FFFFFF", fontSize: 11 },
+  tableInput: { width: "100%", minWidth: 130, padding: "7px 8px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 7, boxSizing: "border-box" },
+  tableInputSmall: { width: 88, padding: "7px 8px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 7, boxSizing: "border-box" },
+  differenceBadge: { padding: "5px 7px", borderRadius: 999, fontSize: 10, fontWeight: 850, whiteSpace: "nowrap" },
+  diffNegative: { background: "#FEE4E2", color: "#B42318" }, diffPositive: { background: "#ECFDF3", color: "#027A48" }, diffBalanced: { background: "#E7F6EC", color: "#166534" },
+  locationList: { maxWidth: 290, display: "flex", gap: 4, flexWrap: "wrap" },
+  locationChip: { padding: "5px 7px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 999, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 9, fontWeight: 800, cursor: "pointer" },
+  mutedText: { color: COLORS.muted, fontSize: 10 }, actionGroup: { display: "flex", gap: 5, flexWrap: "wrap" },
+  actionPrimary: { padding: "6px 8px", border: 0, borderRadius: 7, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 10, fontWeight: 800, cursor: "pointer" },
+  actionSecondary: { padding: "6px 8px", border: `1px solid ${COLORS.border}`, borderRadius: 7, background: "#FFFFFF", color: COLORS.muted, fontSize: 10, fontWeight: 800, cursor: "pointer" },
+  actionDanger: { padding: "6px 8px", border: "1px solid #FDA29B", borderRadius: 7, background: "#FFF1F1", color: "#B42318", fontSize: 10, fontWeight: 800, cursor: "pointer" },
+  emptyTable: { padding: 28, textAlign: "center", color: COLORS.muted },
   placeholder: { minHeight: 220, padding: 28, display: "flex", alignItems: "flex-start", gap: 16, border: `1px dashed ${COLORS.border}`, borderRadius: 14, background: "#FBFDFE" },
   placeholderCode: { width: 50, height: 50, flex: "0 0 50px", display: "grid", placeItems: "center", borderRadius: 14, background: COLORS.turquoise, color: "#fff", fontWeight: 850 },
   pending: { marginTop: 18, color: COLORS.turquoiseDark, fontSize: 13, fontWeight: 750 },
