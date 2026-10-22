@@ -39,6 +39,7 @@ export default function App() {
   const [searchSku, setSearchSku] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [assignmentSku, setAssignmentSku] = useState("");
+  const [focusLocation, setFocusLocation] = useState(null);
   const [rackCells, setRackCells] = useState({});
   const [driveCells, setDriveCells] = useState({});
   const hydratedRef = useRef(false);
@@ -265,9 +266,9 @@ export default function App() {
         {profile.role === "admin" && <Tab active={mainTab === "admin"} onClick={() => setMainTab("admin")}>Administración</Tab>}
       </nav>
       <main style={styles.content}>
-        {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} />}
+        {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} focusLocation={focusLocation} />}
         {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} />}
-        {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(target) => { setMainTab("b70"); setSub70(target); }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
+        {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(location) => { setFocusLocation(location); setMainTab("b70"); setSub70(location.target); }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
         {mainTab === "admin" && profile.role === "admin" && <AdminProfiles currentUserId={session.user.id} />}
       </main>
     </div>
@@ -379,14 +380,14 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V5.2 ubicaciones compactas</span>
+        <span style={styles.status}>V5.2.1 navegación a ubicación</span>
       </div>
       {children}
     </section>
   );
 }
 
-function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells, setDriveCells, canEdit, assignmentSku, onCancelAssignment }) {
+function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells, setDriveCells, canEdit, assignmentSku, onCancelAssignment, focusLocation }) {
   return (
     <Section title="Bodega 70" description="Racks selectivos y almacenamiento compacto Drive In.">
       <SubNav
@@ -394,8 +395,8 @@ function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells,
         activeTab={activeTab}
         onTabChange={onTabChange}
       />
-      {activeTab === "racks" && <RacksSelectivos cells={rackCells} setCells={setRackCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} />}
-      {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} />}
+      {activeTab === "racks" && <RacksSelectivos cells={rackCells} setCells={setRackCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} focusLocation={focusLocation} />}
+      {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} focusLocation={focusLocation} />}
     </Section>
   );
 }
@@ -416,13 +417,21 @@ function isCellSelected(selection, group, row, col) {
   return row >= bounds.rowStart && row <= bounds.rowEnd && col >= bounds.colStart && col <= bounds.colEnd;
 }
 
-function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment }) {
+function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment, focusLocation }) {
   const [activeCell, setActiveCell] = useState("");
   const [selection, setSelection] = useState(null);
   const [dragging, setDragging] = useState(false);
   const streets = Array.from({ length: 23 }, (_, index) => index + 1);
   const levels = [3, 2, 1];
   const depths = [1, 2, 3, 4, 5];
+
+  useEffect(() => {
+    if (focusLocation?.target !== "drive") return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`drive-street-${focusLocation.unit}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [focusLocation]);
 
   function updateCell(street, level, depth, value) {
     const key = `${street}-${level}-${depth}`;
@@ -559,6 +568,7 @@ function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment }
             dragging={dragging}
             setDragging={setDragging}
             canEdit={canEdit}
+            focusLocation={focusLocation}
           />
         ))}
       </div>
@@ -566,12 +576,12 @@ function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment }
   );
 }
 
-function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit }) {
+function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit, focusLocation }) {
   const depths = [1, 2, 3, 4, 5];
   const levels = [3, 2, 1];
 
   return (
-    <article style={styles.driveStreet}>
+    <article id={`drive-street-${street}`} style={{ ...styles.driveStreet, ...(focusLocation?.target === "drive" && focusLocation.unit === street ? styles.focusedUnit : {}) }}>
       <div style={styles.driveStreetHeader}>Calle {String(street).padStart(2, "0")}</div>
       <div style={styles.driveMatrixWrap}>
         <div style={styles.driveMatrix}>
@@ -610,6 +620,7 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
                     ...(level === 1 ? styles.levelOne : {}),
                     ...(activeCell === key ? styles.driveCellActive : {}),
                     ...(selected ? styles.multiSelectedCell : {}),
+                    ...(focusLocation?.target === "drive" && String(cells[key] || "").trim() === focusLocation.sku ? styles.focusedSkuCell : {}),
                   }}
                 />
               );
@@ -621,11 +632,19 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
   );
 }
 
-function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssignment }) {
+function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssignment, focusLocation }) {
   const [activeCell, setActiveCell] = useState("");
   const [selection, setSelection] = useState(null);
   const [dragging, setDragging] = useState(false);
   const levels = [3, 2, 1];
+
+  useEffect(() => {
+    if (focusLocation?.target !== "racks") return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`selective-rack-${focusLocation.unit}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [focusLocation]);
 
   function updateCell(rack, level, position, value) {
     const key = `${rack}-${level}-${position}`;
@@ -767,6 +786,7 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
                 dragging={dragging}
                 setDragging={setDragging}
                 canEdit={canEdit}
+                focusLocation={focusLocation}
               />
             </div>
           ))}
@@ -776,12 +796,12 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
   );
 }
 
-function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit }) {
+function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit, focusLocation }) {
   const positions = Array.from({ length: rack.positions }, (_, index) => index + 1);
   const levels = [3, 2, 1];
 
   return (
-    <div style={styles.warehouseRack}>
+    <div id={`selective-rack-${rack.number}`} style={{ ...styles.warehouseRack, ...(focusLocation?.target === "racks" && focusLocation.unit === rack.number ? styles.focusedUnit : {}) }}>
       <div style={styles.rackName}>RACK {rack.number}</div>
       <div style={styles.rackMatrixWrap}>
         <div style={{ ...styles.rackMatrix, gridTemplateColumns: `repeat(${rack.positions}, minmax(0, 1fr))` }}>
@@ -816,6 +836,7 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, sel
                   ...(level === 1 ? styles.levelOne : {}),
                   ...(activeCell === key ? styles.matrixCellActive : {}),
                   ...(selected ? styles.multiSelectedCell : {}),
+                  ...(focusLocation?.target === "racks" && String(cells[key] || "").trim() === focusLocation.sku ? styles.focusedSkuCell : {}),
                 }}
               />
             );
@@ -990,6 +1011,7 @@ function summarizeLocations(locations) {
       count: items.length,
       levels: levels.map((level) => `N${level}`).join(", "),
       first: items[0]?.label || "",
+      unit: units[0],
     }];
   });
 }
@@ -1241,7 +1263,7 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
           <td>{item.units > 0 ? item.pallets.toFixed(2) : "—"}</td>
           <td><strong>{item.assigned}</strong></td>
           <td><span style={{ ...styles.differenceBadge, ...(item.difference < -0.01 ? styles.diffNegative : item.difference > 0.01 ? styles.diffPositive : styles.diffBalanced) }}>{item.units > 0 ? signedNumber(item.difference) : "—"}</span></td>
-          <td><div style={styles.locationList}>{item.locations.length ? summarizeLocations(item.locations).map((group) => <button key={group.target} type="button" onClick={() => onNavigate(group.target)} style={styles.locationSummaryCard}><span style={styles.locationSummaryTop}><strong>{group.title}</strong><b>{group.count} pos.</b></span><span>{group.details}</span><small>{group.levels}</small></button>) : <span style={styles.mutedText}>Sin ubicación</span>}</div></td>
+          <td><div style={styles.locationList}>{item.locations.length ? summarizeLocations(item.locations).map((group) => <button key={group.target} type="button" onClick={() => onNavigate({ target: group.target, unit: group.unit, sku: item.sku })} style={styles.locationSummaryCard}><span style={styles.locationSummaryTop}><strong>{group.title}</strong><b>{group.count} pos.</b></span><span>{group.details}</span><small>{group.levels}</small></button>) : <span style={styles.mutedText}>Sin ubicación</span>}</div></td>
           <td>{editing ? <input value={editDraft.observation} onChange={(e) => setEditDraft({ ...editDraft, observation: e.target.value })} style={styles.tableInput} /> : item.observation || "—"}</td>
           {canEdit && <td><div style={styles.actionGroup}>{editing ? <><button type="button" onClick={(event) => saveProduct(event, { ...editDraft, sku: item.sku }, false)} style={styles.actionPrimary}>Guardar</button><button type="button" onClick={() => setEditingSku("")} style={styles.actionSecondary}>Cancelar</button></> : <><button type="button" onClick={() => onAssign(item.sku)} style={styles.assignmentButton}>Asignar posiciones</button><button type="button" onClick={() => { setEditingSku(item.sku); setEditDraft({ ...item, stock: item.stock, units_per_pallet: item.units }); }} style={styles.actionPrimary}>Editar</button>{isAdmin && <button type="button" onClick={() => deleteProduct(item.sku)} style={styles.actionDanger}>Eliminar</button>}</>}</div></td>}
         </tr>;
@@ -1408,6 +1430,8 @@ const styles = {
   differenceBadge: { padding: "5px 7px", borderRadius: 999, fontSize: 10, fontWeight: 850, whiteSpace: "nowrap" },
   diffNegative: { background: "#FEE4E2", color: "#B42318" }, diffPositive: { background: "#ECFDF3", color: "#027A48" }, diffBalanced: { background: "#E7F6EC", color: "#166534" },
   locationList: { minWidth: 210, maxWidth: 280, display: "grid", gap: 6 },
+  focusedUnit: { scrollMarginTop: "120px", borderRadius: 14, boxShadow: `0 0 0 4px rgba(0,193,194,.35), 0 12px 28px rgba(0,154,155,.18)` },
+  focusedSkuCell: { position: "relative", zIndex: 3, background: "#FFF3BF", boxShadow: "inset 0 0 0 2px #F59E0B" },
   locationSummaryCard: { width: "100%", padding: "8px 10px", display: "grid", gap: 3, border: `1px solid ${COLORS.turquoise}`, borderRadius: 10, background: "#E7FBFB", color: COLORS.turquoiseDark, textAlign: "left", fontSize: 10, cursor: "pointer" },
   locationSummaryTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
   mutedText: { color: COLORS.muted, fontSize: 10 }, actionGroup: { display: "flex", gap: 5, flexWrap: "wrap" },
