@@ -379,7 +379,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V5.1.1 stock por lotes</span>
+        <span style={styles.status}>V5.1.2 stock RPC</span>
       </div>
       {children}
     </section>
@@ -1078,57 +1078,70 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
   }
 
   async function confirmImport() {
-    if (!canEdit || !importPreview?.valid.length) return;
-    setImporting(true); setError(""); setMessage("");
+    if (!canEdit || !importPreview?.valid.length || importing) return;
+    setImporting(true);
+    setError("");
+    setMessage("");
+
+    const originalPreview = importPreview;
     let success = 0;
-    let importErrors = [...importPreview.errors];
+    let importErrors = [...originalPreview.errors];
 
-    if (importType === "products") {
-      const payload = importPreview.valid.map((row) => ({ ...row, updated_by: userId, updated_at: new Date().toISOString() }));
-      const result = await supabase.from("products").upsert(payload, { onConflict: "sku" });
-      if (result.error) importErrors.push({ rowNumber: 0, reason: result.error.message }); else success = payload.length;
-    } else {
-      const productMap = new Map(products.map((product) => [String(product.sku).trim(), product]));
-      const now = new Date().toISOString();
-      const stockPayload = [];
-
-      importPreview.valid.forEach((row) => {
-        const existing = productMap.get(String(row.sku).trim());
-        if (!existing) {
-          importErrors.push({ rowNumber: 0, reason: `SKU no encontrado: ${row.sku}` });
-          return;
-        }
-        stockPayload.push({
-          sku: existing.sku,
-          description: existing.description || "",
-          stock: row.stock,
-          units_per_pallet: Number(existing.units_per_pallet) || 0,
-          observation: existing.observation || "",
+    try {
+      if (importType === "products") {
+        const payload = originalPreview.valid.map((row) => ({
+          ...row,
           updated_by: userId,
-          updated_at: now,
-        });
-      });
+          updated_at: new Date().toISOString(),
+        }));
+        const result = await supabase.from("products").upsert(payload, { onConflict: "sku" });
+        if (result.error) throw result.error;
+        success = payload.length;
+      } else {
+        const payload = originalPreview.valid.map((row) => ({
+          sku: String(row.sku).trim(),
+          stock: Number(row.stock),
+        }));
+        const result = await supabase.rpc("bulk_update_product_stock", { stock_rows: payload });
+        if (result.error) throw result.error;
 
-      if (stockPayload.length) {
-        const chunkSize = 500;
-        for (let start = 0; start < stockPayload.length; start += chunkSize) {
-          const chunk = stockPayload.slice(start, start + chunkSize);
-          const result = await supabase.from("products").upsert(chunk, { onConflict: "sku" });
-          if (result.error) {
-            importErrors.push({ rowNumber: 0, reason: `Error al actualizar lote: ${result.error.message}` });
-            break;
-          }
-          success += chunk.length;
-        }
+        const summary = Array.isArray(result.data) ? result.data[0] : result.data;
+        success = Number(summary?.updated_count) || 0;
+        const missing = Array.isArray(summary?.missing_skus) ? summary.missing_skus : [];
+        missing.forEach((sku) => importErrors.push({ rowNumber: 0, reason: `SKU no encontrado: ${sku}` }));
       }
-    }
 
-    const historyResult = await supabase.from("import_history").insert({ import_type: importType, file_name: importPreview.fileName, total_rows: importPreview.total, successful_rows: success, error_rows: importErrors.length, imported_by: userId });
-    if (historyResult.error) importErrors.push({ rowNumber: 0, reason: `No se pudo registrar el historial: ${historyResult.error.message}` });
-    setMessage(`Importación finalizada: ${success} filas actualizadas, ${importErrors.length} con error.`);
-    setImportPreview(importErrors.length ? { ...importPreview, errors: importErrors, valid: [] } : null);
-    await loadProducts();
-    setImporting(false);
+      const historyResult = await supabase.from("import_history").insert({
+        import_type: importType,
+        file_name: originalPreview.fileName,
+        total_rows: originalPreview.total,
+        successful_rows: success,
+        error_rows: importErrors.length,
+        imported_by: userId,
+      });
+      if (historyResult.error) {
+        importErrors.push({ rowNumber: 0, reason: `Historial no registrado: ${historyResult.error.message}` });
+      }
+
+      await loadProducts();
+      setMessage(`Importación finalizada: ${success} filas actualizadas y ${importErrors.length} observaciones.`);
+      setImportPreview(null);
+      if (importErrors.length) {
+        setImportPreview({
+          fileName: originalPreview.fileName,
+          total: originalPreview.total,
+          valid: [],
+          errors: importErrors,
+          completed: true,
+          success,
+        });
+      }
+    } catch (importError) {
+      setError(`No se actualizó el stock: ${importError.message || importError}`);
+      setImportPreview(originalPreview);
+    } finally {
+      setImporting(false);
+    }
   }
 
   const rows = products.map(enriched).filter((item) => {
@@ -1158,7 +1171,7 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
       {canEdit && <><label style={styles.importButton}>Importar Maestro CSV<input type="file" accept=".csv,.txt" hidden onChange={(event) => readImportFile(event, "products")} /></label><label style={styles.importButtonStock}>Actualizar Stock CSV<input type="file" accept=".csv,.txt" hidden onChange={(event) => readImportFile(event, "stock")} /></label></>}
     </div>
 
-    {importPreview && <div style={styles.importPreview}><div><strong>{importType === "products" ? "Vista previa Maestro" : "Vista previa Stock"}</strong><span>{importPreview.fileName}</span></div><div style={styles.importStats}><span>{importPreview.total} filas</span><span>{importPreview.valid.length} válidas</span><span>{importPreview.errors.length} errores</span></div>{importPreview.errors.length > 0 && <details><summary>Ver errores</summary><div style={styles.importErrors}>{importPreview.errors.slice(0,20).map((item,index) => <span key={`${item.rowNumber}-${index}`}>Fila {item.rowNumber || "—"}: {item.reason}</span>)}</div></details>}<div style={styles.actionGroup}><button type="button" disabled={importing || !importPreview.valid.length} onClick={confirmImport} style={styles.actionPrimary}>{importing ? "Importando..." : "Confirmar importación"}</button><button type="button" onClick={() => setImportPreview(null)} style={styles.actionSecondary}>Cancelar</button></div></div>}
+    {importPreview && <div style={styles.importPreview}><div><strong>{importPreview.completed ? "Resultado de importación" : importType === "products" ? "Vista previa Maestro" : "Vista previa Stock"}</strong><span>{importPreview.fileName}</span></div><div style={styles.importStats}><span>{importPreview.total} filas</span>{importPreview.completed ? <span>{importPreview.success} actualizadas</span> : <span>{importPreview.valid.length} válidas</span>}<span>{importPreview.errors.length} observaciones</span></div>{importPreview.errors.length > 0 && <details><summary>Ver observaciones</summary><div style={styles.importErrors}>{importPreview.errors.slice(0,50).map((item,index) => <span key={`${item.rowNumber}-${index}`}>{item.rowNumber ? `Fila ${item.rowNumber}: ` : ""}{item.reason}</span>)}</div></details>}<div style={styles.actionGroup}>{!importPreview.completed && <button type="button" disabled={importing || !importPreview.valid.length} onClick={confirmImport} style={styles.actionPrimary}>{importing ? "Importando..." : "Confirmar importación"}</button>}<button type="button" onClick={() => setImportPreview(null)} style={styles.actionSecondary}>{importPreview.completed ? "Cerrar" : "Cancelar"}</button></div></div>}
 
     {canEdit && <form onSubmit={(event) => saveProduct(event, draft, true)} style={styles.newProductForm}>
       <strong style={styles.formTitle}>Nuevo producto</strong>
