@@ -38,6 +38,8 @@ export default function App() {
   const [sub60, setSub60] = useState("envases");
   const [searchSku, setSearchSku] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchProduct, setSearchProduct] = useState(null);
+  const [searchProductLoading, setSearchProductLoading] = useState(false);
   const [assignmentSku, setAssignmentSku] = useState("");
   const [focusLocation, setFocusLocation] = useState(null);
   const [rackCells, setRackCells] = useState({});
@@ -190,18 +192,56 @@ export default function App() {
           .filter(([, sku]) => String(sku).toLowerCase().includes(normalizedSearch))
           .map(([key, sku]) => {
             const [rack, level, position] = key.split("-");
-            return { id: `rack-${key}`, sku, area: "Racks Selectivos", coordinate: `RACK ${rack} · N${level} · P${position}`, target: "racks" };
+            return { id: `rack-${key}`, sku, area: "Racks Selectivos", coordinate: `RACK ${rack} · N${level} · P${position}`, target: "racks", unit: Number(rack), level: Number(level), slot: Number(position) };
           }),
         ...Object.entries(driveCells)
           .filter(([, sku]) => String(sku).toLowerCase().includes(normalizedSearch))
           .map(([key, sku]) => {
             const [street, level, depth] = key.split("-");
-            return { id: `drive-${key}`, sku, area: "Racks Drive In", coordinate: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`, target: "drive" };
+            return { id: `drive-${key}`, sku, area: "Racks Drive In", coordinate: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`, target: "drive", unit: Number(street), level: Number(level), slot: Number(depth) };
           }),
       ]
     : [];
 
+  useEffect(() => {
+    const sku = searchSku.trim();
+    if (!sku || !session?.user) {
+      setSearchProduct(null);
+      setSearchProductLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchProductLoading(true);
+    const timer = window.setTimeout(async () => {
+      const result = await supabase
+        .from("products")
+        .select("sku, description, stock, units_per_pallet, observation")
+        .eq("sku", sku)
+        .maybeSingle();
+      if (!cancelled) {
+        setSearchProduct(result.error ? null : result.data);
+        setSearchProductLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchSku, session?.user?.id]);
+
+  const searchAssigned = searchResults.length;
+  const searchStock = Number(searchProduct?.stock) || 0;
+  const searchUnitsPerPallet = Number(searchProduct?.units_per_pallet) || 0;
+  const searchPallets = searchUnitsPerPallet > 0 ? searchStock / searchUnitsPerPallet : 0;
+  const searchRequiredPositions = Math.ceil(searchPallets);
+  const searchFreePositions = Math.max(searchAssigned - searchRequiredPositions, 0);
+  const searchUtilization = searchAssigned > 0 ? (searchPallets / searchAssigned) * 100 : 0;
+  const searchLocationGroups = summarizeLocations(searchResults);
+
   function navigateToResult(result) {
+    setFocusLocation({ target: result.target, unit: result.unit, sku: String(result.sku || searchSku).trim() });
     setMainTab("b70");
     setSub70(result.target);
     setSearchOpen(false);
@@ -234,15 +274,52 @@ export default function App() {
             {searchOpen && searchSku.trim() && (
               <div style={styles.searchPanel}>
                 <div style={styles.searchSummary}>
-                  <div><span style={styles.searchSummaryLabel}>SKU buscado</span><strong style={styles.searchSkuValue}>{searchSku.trim()}</strong></div>
-                  <div style={styles.positionCount}><strong>{searchResults.length}</strong><span>{searchResults.length === 1 ? "posición" : "posiciones"}</span></div>
+                  <div>
+                    <span style={styles.searchSummaryLabel}>SKU buscado</span>
+                    <strong style={styles.searchSkuValue}>{searchSku.trim()}</strong>
+                  </div>
+                  <div style={styles.positionCount}>
+                    <strong>{searchAssigned}</strong>
+                    <span>{searchAssigned === 1 ? "posición" : "posiciones"}</span>
+                  </div>
                 </div>
-                <div style={styles.resultList}>
-                  {searchResults.length ? searchResults.map((result) => (
-                    <button key={result.id} type="button" onClick={() => navigateToResult(result)} style={styles.resultItem}>
-                      <span style={styles.resultMarker}>●</span><span style={styles.resultText}><strong>{result.coordinate}</strong><small>{result.area}</small></span><span style={styles.resultArrow}>›</span>
+
+                {searchProductLoading ? (
+                  <div style={styles.searchLoading}>Cargando detalle del producto…</div>
+                ) : searchProduct ? (
+                  <div style={styles.skuDetailCard}>
+                    <strong style={styles.skuDescription}>{searchProduct.description || "Sin descripción"}</strong>
+                    <div style={styles.skuMetricsGrid}>
+                      <SearchMetric label="Stock" value={formatNumber(searchStock)} />
+                      <SearchMetric label="Cant./Pallet" value={formatNumber(searchUnitsPerPallet)} />
+                      <SearchMetric label="Pallets Eq." value={searchUnitsPerPallet > 0 ? searchPallets.toFixed(2) : "—"} />
+                      <SearchMetric label="Utilización" value={searchAssigned > 0 && searchUnitsPerPallet > 0 ? `${searchUtilization.toFixed(1)}%` : "—"} alert={searchUtilization > 100} />
+                      <SearchMetric label="Posiciones libres" value={searchUnitsPerPallet > 0 ? searchFreePositions : "—"} />
+                    </div>
+                    {searchProduct.observation && <div style={styles.skuObservation}>{searchProduct.observation}</div>}
+                  </div>
+                ) : (
+                  <div style={styles.productMissing}>El SKU no existe en el Maestro de Productos.</div>
+                )}
+
+                <div style={styles.searchLocationSection}>
+                  <span style={styles.searchSummaryLabel}>Primera ubicación</span>
+                  {searchLocationGroups.length ? searchLocationGroups.map((group) => (
+                    <button
+                      key={group.target}
+                      type="button"
+                      onClick={() => navigateToResult({ target: group.target, unit: group.unit, sku: searchSku.trim() })}
+                      style={styles.searchLocationCard}
+                    >
+                      <span style={styles.searchLocationIcon}>⌖</span>
+                      <span style={styles.searchLocationText}>
+                        <strong>{group.title} · {group.count} pos.</strong>
+                        <small>{group.details} · {group.levels}</small>
+                        <em>Ir a la primera posición</em>
+                      </span>
+                      <span style={styles.resultArrow}>›</span>
                     </button>
-                  )) : <div style={styles.noResults}>No hay posiciones asignadas a este SKU.</div>}
+                  )) : <div style={styles.noResults}>El SKU no tiene posiciones asignadas.</div>}
                 </div>
               </div>
             )}
@@ -273,6 +350,10 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+function SearchMetric({ label, value, alert }) {
+  return <div style={{ ...styles.searchMetric, ...(alert ? styles.searchMetricAlert : {}) }}><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function LoadingScreen({ text }) {
@@ -380,7 +461,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V5.2.1 navegación a ubicación</span>
+        <span style={styles.status}>V5.3 buscador detallado</span>
       </div>
       {children}
     </section>
@@ -1319,6 +1400,18 @@ const styles = {
   resultText: { display: "grid", gap: 3, flex: 1 },
   resultArrow: { color: COLORS.turquoiseDark, fontSize: 22, fontWeight: 800 },
   noResults: { padding: 20, color: COLORS.muted, textAlign: "center", fontSize: 13 },
+  searchLoading: { padding: 18, color: COLORS.muted, textAlign: "center", fontSize: 12 },
+  skuDetailCard: { padding: 14, display: "grid", gap: 10, borderBottom: `1px solid ${COLORS.border}`, background: "#FFFFFF" },
+  skuDescription: { color: COLORS.text, fontSize: 13, lineHeight: 1.35 },
+  skuMetricsGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 7 },
+  searchMetric: { padding: "8px 9px", display: "grid", gap: 2, border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#F8FAFC" },
+  searchMetricAlert: { borderColor: "#FDA29B", background: "#FFF1F1", color: "#B42318" },
+  skuObservation: { padding: 8, borderRadius: 8, background: "#FFFAEB", color: "#93370D", fontSize: 10 },
+  productMissing: { padding: 14, borderBottom: `1px solid ${COLORS.border}`, color: "#B42318", background: "#FFF7F7", fontSize: 11 },
+  searchLocationSection: { padding: 10, display: "grid", gap: 7, background: "#FBFDFE" },
+  searchLocationCard: { width: "100%", padding: "10px 11px", display: "flex", alignItems: "center", gap: 10, border: `1px solid ${COLORS.turquoise}`, borderRadius: 11, background: "#E7FBFB", color: COLORS.text, textAlign: "left", cursor: "pointer" },
+  searchLocationIcon: { width: 28, height: 28, display: "grid", placeItems: "center", flex: "0 0 28px", borderRadius: 8, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 17 },
+  searchLocationText: { display: "grid", gap: 2, flex: 1 },
   userCard: { minHeight: 46, padding: "5px 10px 5px 6px", display: "flex", alignItems: "center", gap: 9, border: `1px solid ${COLORS.border}`, borderRadius: 13, background: "#FFFFFF", boxShadow: "0 7px 22px rgba(16,24,40,.06)" },
   userAvatar: { width: 34, height: 34, display: "grid", placeItems: "center", borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 11, fontWeight: 900 },
   userText: { display: "grid", gap: 2, minWidth: 105, fontSize: 12 },
