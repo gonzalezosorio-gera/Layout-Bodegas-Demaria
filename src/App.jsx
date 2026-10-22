@@ -257,7 +257,14 @@ export default function App() {
   const roleLabel = profile.role === "admin" ? "Administrador" : profile.role === "editor" ? "Editor" : "Viewer";
 
   return (
-    <div style={styles.app}>
+    <div
+      style={styles.app}
+      onMouseDown={(event) => {
+        const clickedStorageCell = event.target.closest?.('[data-storage-cell="true"]');
+        const clickedSearch = event.target.closest?.('[data-search-ui="true"]');
+        if (!clickedStorageCell && !clickedSearch) setFocusLocation(null);
+      }}
+    >
       <header style={styles.header}>
         <div style={styles.brandBlock}>
           <p style={styles.eyebrow}>DEMARÍA</p>
@@ -265,11 +272,16 @@ export default function App() {
           <p style={styles.subtitle}>Gestión visual de ubicaciones, materiales y productos.</p>
         </div>
         <div style={styles.headerTools}>
-          <div style={styles.searchWrap}>
+          <div style={styles.searchWrap} data-search-ui="true">
             <div style={styles.searchBox}>
               <span style={styles.searchIcon}>⌕</span>
-              <input value={searchSku} onChange={(event) => { setSearchSku(event.target.value); setSearchOpen(true); }} onFocus={() => setSearchOpen(true)} placeholder="Buscar SKU" aria-label="Buscar SKU" style={styles.searchInput} />
-              {searchSku && <button type="button" onClick={() => { setSearchSku(""); setSearchOpen(false); }} style={styles.clearSearch} aria-label="Limpiar búsqueda">×</button>}
+              <input value={searchSku} onChange={(event) => {
+                  const value = event.target.value;
+                  setSearchSku(value);
+                  setSearchOpen(Boolean(value.trim()));
+                  if (!value.trim()) setFocusLocation(null);
+                }} onFocus={() => setSearchOpen(true)} placeholder="Buscar SKU" aria-label="Buscar SKU" style={styles.searchInput} />
+              {searchSku && <button type="button" onClick={() => { setSearchSku(""); setSearchOpen(false); setFocusLocation(null); }} style={styles.clearSearch} aria-label="Limpiar búsqueda">×</button>}
             </div>
             {searchOpen && searchSku.trim() && (
               <div style={styles.searchPanel}>
@@ -461,7 +473,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V5.3 buscador detallado</span>
+        <span style={styles.status}>V5.3.1 deselección automática</span>
       </div>
       {children}
     </section>
@@ -693,6 +705,7 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
                   }}
                   onChange={(event) => canEdit && updateCell(street, level, depth, event.target.value)}
                   aria-label={`Calle ${street}, nivel ${level}, profundidad ${depth}`}
+                  data-storage-cell="true"
                   placeholder="SKU"
                   style={{
                     ...styles.driveCell,
@@ -910,6 +923,7 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, sel
                 }}
                 onChange={(event) => canEdit && updateCell(rack.number, level, position, event.target.value)}
                 aria-label={`Rack ${rack.number}, nivel ${level}, posición ${position}`}
+                data-storage-cell="true"
                 style={{
                   ...styles.matrixCell,
                   ...(level === 3 ? styles.levelThree : {}),
