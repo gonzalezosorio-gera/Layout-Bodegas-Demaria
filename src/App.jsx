@@ -68,6 +68,29 @@ const ENVASE_STREETS = [
   { id: 40, sku: "20103113", streetOrder: 1, capacity: 12, footprints: 6, levels: 2, zone: "central" },
 ];
 
+const ENV_MAP_BLOCKS = [
+  { sku: "20104232", capacity: 84, x: "61%", y: "1%", w: "38%", h: "7%", color: "#4B5D73", text: "#99E64D" },
+  { sku: "20103258", capacity: 160, x: "47%", y: "9%", w: "52%", h: "13%", color: "#337DB6" },
+  { sku: "20103244", capacity: 40, x: "41%", y: "27%", w: "28%", h: "6%", color: "#548638" },
+  { sku: "20103243", capacity: 40, x: "41%", y: "35%", w: "28%", h: "6%", color: "#FFF600" },
+  { sku: "20103249", capacity: 20, x: "41%", y: "43%", w: "28%", h: "5%", color: "#3E3D91", text: "#FFFFFF" },
+  { sku: "20103113", capacity: 12, x: "75%", y: "22%", w: "24%", h: "6%", color: "#D4A000", text: "#FFFFFF" },
+  { sku: "20103235", capacity: 18, x: "75%", y: "30%", w: "24%", h: "6%", color: "#F48A3A" },
+  { sku: "20103239", capacity: 18, x: "75%", y: "38%", w: "24%", h: "6%", color: "#C7C8FA" },
+  { sku: "20103237", capacity: 36, x: "75%", y: "46%", w: "24%", h: "6%", color: "#C7C8FA" },
+  { sku: "20101418", capacity: 18, x: "75%", y: "54%", w: "24%", h: "6%", color: "#F37D2F" },
+  { sku: "20103171", capacity: 18, x: "75%", y: "62%", w: "24%", h: "5%", color: "#FFFFFF", text: "#E31C23" },
+  { sku: "20103241", capacity: 36, x: "75%", y: "74%", w: "24%", h: "6%", color: "#7134A5", text: "#FFFFFF" },
+  { sku: "20103236", capacity: 36, x: "75%", y: "82%", w: "24%", h: "6%", color: "#12A8D7" },
+  { sku: "20103248", capacity: 32, x: "78%", y: "90%", w: "21%", h: "5%", color: "#F08EEA" },
+  { sku: "20103238", capacity: 21, x: "0.5%", y: "57%", w: "8%", h: "19%", color: "#598D38", text: "#FFFFFF" },
+  { sku: "20103260", capacity: 64, x: "11%", y: "57%", w: "20%", h: "19%", color: "#0FA5D2" },
+  { sku: "20103266", capacity: 32, x: "36%", y: "57%", w: "8%", h: "19%", color: "#D66A00" },
+  { sku: "20103109", capacity: 30, x: "47%", y: "57%", w: "8%", h: "19%", color: "#FFE59A" },
+  { sku: "20103261", capacity: 48, x: "58%", y: "57%", w: "12%", h: "19%", color: "#99D500" },
+];
+
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -540,7 +563,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V6.1 envases interactivo</span>
+        <span style={styles.status}>V6.2 mapa fiel al Excel</span>
       </div>
       {children}
     </section>
@@ -1031,6 +1054,16 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
   const [selectedSku, setSelectedSku] = useState("");
   const [detailSku, setDetailSku] = useState("");
   const [envQuery, setEnvQuery] = useState("");
+  const [detailProduct, setDetailProduct] = useState(null);
+
+  useEffect(() => {
+    if (!detailSku) { setDetailProduct(null); return; }
+    let cancelled = false;
+    supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", detailSku).maybeSingle().then(({ data }) => {
+      if (!cancelled) setDetailProduct(data ?? null);
+    });
+    return () => { cancelled = true; };
+  }, [detailSku]);
 
   useEffect(() => {
     if (focusLocation?.target !== "envases") return;
@@ -1066,7 +1099,7 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
     return <div style={styles.envLayout}>
       <div style={styles.envDetailHeader}>
         <button type="button" onClick={() => setDetailSku("")} style={styles.actionSecondary}>← Volver al mapa general</button>
-        <div><span style={styles.searchSummaryLabel}>Detalle de Envases</span><h3 style={styles.envDetailTitle}>{detailSku}</h3></div>
+        <div><span style={styles.searchSummaryLabel}>Detalle de Envases</span><h3 style={styles.envDetailTitle}>{detailSku}</h3><p style={styles.envDetailDescription}>{detailProduct?.description || "Sin descripción registrada en el Maestro"}</p></div>
         <div style={styles.envDetailStats}><span><b>{metrics.streets.length}</b> calles</span><span><b>{metrics.capacity}</b> posiciones</span><span><b>{metrics.occupied}</b> ocupadas</span><span><b>{metrics.free}</b> libres</span><span><b>{metrics.utilization.toFixed(1)}%</b> utilización</span></div>
       </div>
       <div style={styles.envDetailGrid}>{metrics.streets.map((street) => <EnvaseStreet key={street.id} street={street} cells={cells} setCells={setCells} canEdit={canEdit} focusLocation={focusLocation} />)}</div>
@@ -1092,17 +1125,22 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
       <div style={styles.envMapHeader}><div><h3 style={styles.areaTitle}>Mapa general de Envases</h3><p style={styles.areaDescription}>Primera aproximación basada en el Excel. La geometría podrá ajustarse sin cambiar las calles ni sus posiciones.</p></div><span style={styles.summaryBadge}>{ENVASE_STREETS.reduce((sum, street) => sum + street.capacity, 0)} posiciones</span></div>
       {selectedSku && (() => { const metrics = skuMetrics(selectedSku); return <div style={styles.envSelectedSummary}><strong>{selectedSku}</strong><span>{metrics.streets.length} calles</span><span>{metrics.capacity} posiciones</span><span>{metrics.occupied} ocupadas</span><span>{metrics.free} libres</span><button type="button" onClick={() => setDetailSku(selectedSku)} style={styles.assignmentButton}>Abrir detalle</button></div>; })()}
       <div style={styles.envMapCanvas}>
-        <div style={{ ...styles.envLandmarkBlock, gridArea: "anilinas" }}>ZONA ANILINAS</div>
-        <div style={{ ...styles.envLandmarkBlock, gridArea: "oficina" }}>FRACCIONAMIENTO · OFICINA</div>
-        <div style={{ ...styles.envLandmarkBlock, gridArea: "calidad" }}>CALIDAD</div>
-        <div style={{ ...styles.envLandmarkBlock, gridArea: "kanban" }}>KANBAN</div>
-        <div style={{ ...styles.envLandmarkBlock, gridArea: "etiquetas" }}>ETIQUETAS TC</div>
-        <div style={{ ...styles.envLandmarkBlock, gridArea: "drive" }}>ZONA DRIVE IN</div>
-        <div style={{ ...styles.envLandmarkBlock, gridArea: "panol" }}>PAÑOL</div>
-        <div style={{ ...styles.envMapZone, gridArea: "superior" }}><EnvMapZone title="Sector superior" zone="superior" selectedSku={selectedSku} onSelect={chooseSku} onOpen={setDetailSku} /></div>
-        <div style={{ ...styles.envMapZone, gridArea: "central" }}><EnvMapZone title="Calles centrales" zone="central" selectedSku={selectedSku} onSelect={chooseSku} onOpen={setDetailSku} /></div>
-        <div style={{ ...styles.envMapZone, gridArea: "patio" }}><EnvMapZone title="Patio principal" zone="patio" selectedSku={selectedSku} onSelect={chooseSku} onOpen={setDetailSku} /></div>
-        <div style={{ ...styles.envMapZone, gridArea: "derecho" }}><EnvMapZone title="Sector derecho" zone="derecho" selectedSku={selectedSku} onSelect={chooseSku} onOpen={setDetailSku} /></div>
+        <div style={{ ...styles.envFixedArea, left: "0.5%", top: "1%", width: "27%", height: "7%" }}>ZONA ANILINAS</div>
+        <div style={{ ...styles.envFixedArea, left: "0.5%", top: "9%", width: "27%", height: "14%" }}><span style={styles.verticalLabel}>Fraccionamiento</span><strong>OFICINA</strong></div>
+        <div style={{ ...styles.envFixedArea, left: "0.5%", top: "23.5%", width: "27%", height: "31%" }}>KANBAN</div>
+        <div style={{ ...styles.envFixedArea, left: "38.5%", top: "1%", width: "5%", height: "4%", background: "#000", color: "#FFF" }}>EXT.</div>
+        <div style={{ ...styles.envFixedArea, left: "44%", top: "1%", width: "8%", height: "4%", background: "#FFF200" }}>CALIDAD</div>
+        <div style={{ ...styles.envFixedArea, left: "74%", top: "68%", width: "26%", height: "6%", background: "#C5CAE9", color: "#5E35B1" }}>Zona de etiquetas TC</div>
+        <div style={{ ...styles.envFixedArea, left: "0.5%", top: "88%", width: "74%", height: "11%", background: "#000", color: "#FFF", fontSize: 16 }}>ZONA DE RACKS DRIVE IN</div>
+        <div style={{ ...styles.envFixedArea, left: "74.5%", top: "94%", width: "25.5%", height: "5%", fontSize: 16 }}>PAÑOL</div>
+
+        {ENV_MAP_BLOCKS.map((block) => {
+          const selected = selectedSku === block.sku;
+          const faded = selectedSku && !selected;
+          return <button key={block.sku} type="button" onClick={() => chooseSku(block.sku)} onDoubleClick={() => setDetailSku(block.sku)} style={{ ...styles.envSkuMapBlock, left: block.x, top: block.y, width: block.w, height: block.h, background: block.color, color: block.text || "#101828", ...(selected ? styles.envMapStreetSelected : {}), ...(faded ? styles.envMapStreetFaded : {}) }}>
+            <strong>{block.sku}</strong><span>{block.capacity} posiciones</span>
+          </button>;
+        })}
       </div>
     </section>
   </div>;
@@ -1730,7 +1768,10 @@ const styles = {
   envMapPanel: { minWidth: 0, border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden", background: "#FFFFFF" },
   envMapHeader: { padding: 14, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", borderBottom: `1px solid ${COLORS.border}` },
   envSelectedSummary: { padding: "10px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 11 },
-  envMapCanvas: { minWidth: 780, minHeight: 680, padding: 12, display: "grid", gridTemplateColumns: "1.1fr 2.2fr 1.15fr", gridTemplateRows: "70px 180px 300px 80px", gridTemplateAreas: '"anilinas superior calidad" "oficina superior etiquetas" "kanban patio derecho" "drive drive panol"', gap: 10, background: "#E9EDF1" },
+  envMapCanvas: { position: "relative", minWidth: 820, aspectRatio: "1.62 / 1", overflow: "hidden", background: "#B8B6B6", border: "3px solid #172033" },
+  envFixedArea: { position: "absolute", display: "grid", placeItems: "center", border: "2px solid #172033", background: "#FFFFFF", color: "#101828", fontSize: 11, fontWeight: 900, textAlign: "center", boxSizing: "border-box" },
+  verticalLabel: { position: "absolute", left: 3, top: "50%", transform: "translateY(-50%) rotate(-90deg)", fontSize: 7 },
+  envSkuMapBlock: { position: "absolute", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, flexWrap: "wrap", border: "2px solid #172033", fontSize: 9, fontWeight: 800, cursor: "pointer", boxSizing: "border-box", transition: ".18s ease" },
   envLandmarkBlock: { display: "grid", placeItems: "center", border: "2px solid #98A2B3", borderRadius: 9, background: "#FFFFFF", color: "#475467", fontSize: 10, fontWeight: 900, textAlign: "center" },
   envMapZone: { padding: 8, border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: 10, overflow: "auto", background: "#F7FFFF" },
   envMapZoneTitle: { display: "block", marginBottom: 6, color: COLORS.turquoiseDark, fontSize: 10 },
@@ -1740,6 +1781,7 @@ const styles = {
   envMapStreetFaded: { opacity: .18, filter: "grayscale(.8)" },
   envDetailHeader: { padding: 16, display: "grid", gridTemplateColumns: "auto minmax(180px,1fr) auto", alignItems: "center", gap: 14, borderBottom: `1px solid ${COLORS.border}` },
   envDetailTitle: { margin: 0, fontSize: 24, color: COLORS.text },
+  envDetailDescription: { margin: "4px 0 0", color: COLORS.muted, fontSize: 12, fontWeight: 600 },
   envDetailStats: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" },
   envDetailGrid: { padding: 16, display: "grid", gap: 14, background: "#F3F6F8" },
   envLayout: { border: `1px solid ${COLORS.border}`, borderRadius: 16, overflow: "hidden", background: "#FFFFFF" },
