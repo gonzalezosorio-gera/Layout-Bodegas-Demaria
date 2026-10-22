@@ -563,7 +563,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V6.2 mapa fiel al Excel</span>
+        <span style={styles.status}>V6.3 envases corporativo</span>
       </div>
       {children}
     </section>
@@ -1055,6 +1055,8 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
   const [detailSku, setDetailSku] = useState("");
   const [envQuery, setEnvQuery] = useState("");
   const [detailProduct, setDetailProduct] = useState(null);
+  const [envSelection, setEnvSelection] = useState(null);
+  const [envDragging, setEnvDragging] = useState(false);
 
   useEffect(() => {
     if (!detailSku) { setDetailProduct(null); return; }
@@ -1089,6 +1091,76 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
     return { streets, capacity, occupied, free: Math.max(capacity - occupied, 0), utilization: capacity ? occupied / capacity * 100 : 0 };
   }
 
+  function selectedEnvaseKeys(currentSelection = envSelection) {
+    if (!currentSelection) return [];
+    const street = ENVASE_STREETS.find((item) => item.id === currentSelection.group);
+    if (!street) return [];
+    const levels = Array.from({ length: street.levels }, (_, index) => street.levels - index);
+    const bounds = selectionBounds(currentSelection);
+    const keys = [];
+    for (let row = bounds.rowStart; row <= Math.min(bounds.rowEnd, levels.length - 1); row += 1) {
+      for (let col = bounds.colStart; col <= Math.min(bounds.colEnd, street.footprints - 1); col += 1) {
+        const blocked = street.blocked?.includes(`${levels[row]}-${col + 1}`);
+        if (!blocked) keys.push(`${street.id}-${levels[row]}-${col + 1}`);
+      }
+    }
+    return keys;
+  }
+
+  function copyEnvaseSelection() {
+    if (!envSelection) return;
+    const street = ENVASE_STREETS.find((item) => item.id === envSelection.group);
+    const levels = Array.from({ length: street.levels }, (_, index) => street.levels - index);
+    const bounds = selectionBounds(envSelection);
+    const rows = [];
+    for (let row = bounds.rowStart; row <= Math.min(bounds.rowEnd, levels.length - 1); row += 1) {
+      const values = [];
+      for (let col = bounds.colStart; col <= Math.min(bounds.colEnd, street.footprints - 1); col += 1) {
+        values.push(cells[`${street.id}-${levels[row]}-${col + 1}`] || "");
+      }
+      rows.push(values.join("\t"));
+    }
+    navigator.clipboard?.writeText(rows.join("\n"));
+  }
+
+  function clearEnvaseSelection() {
+    if (!canEdit) return;
+    const keys = selectedEnvaseKeys();
+    setCells((current) => {
+      const next = { ...current };
+      keys.forEach((key) => delete next[key]);
+      return next;
+    });
+  }
+
+  function pasteEnvaseSelection(text) {
+    if (!canEdit || !envSelection) return;
+    const street = ENVASE_STREETS.find((item) => item.id === envSelection.group);
+    const levels = Array.from({ length: street.levels }, (_, index) => street.levels - index);
+    const bounds = selectionBounds(envSelection);
+    const rows = text.replace(/\r/g, "").split("\n").filter((row, index, all) => row || index < all.length - 1).map((row) => row.split("\t"));
+    const single = rows.length === 1 && rows[0].length === 1;
+    setCells((current) => {
+      const next = { ...current };
+      if (single) {
+        selectedEnvaseKeys().forEach((key) => { next[key] = rows[0][0].trim(); });
+        return next;
+      }
+      rows.forEach((values, rowOffset) => values.forEach((value, colOffset) => {
+        const row = bounds.rowStart + rowOffset;
+        const col = bounds.colStart + colOffset;
+        if (row < levels.length && col < street.footprints && !street.blocked?.includes(`${levels[row]}-${col + 1}`)) next[`${street.id}-${levels[row]}-${col + 1}`] = value.trim();
+      }));
+      return next;
+    });
+  }
+
+  function handleEnvaseKeyDown(event) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") { event.preventDefault(); copyEnvaseSelection(); }
+    if ((event.key === "Delete" || event.key === "Backspace") && envSelection && event.target.tagName !== "INPUT") { event.preventDefault(); clearEnvaseSelection(); }
+    if (event.key === "Escape") setEnvSelection(null);
+  }
+
   function chooseSku(sku) {
     setSelectedSku(sku);
     setDetailSku("");
@@ -1096,24 +1168,25 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
 
   if (detailSku) {
     const metrics = skuMetrics(detailSku);
-    return <div style={styles.envLayout}>
+    return <div style={styles.envLayout} tabIndex={0} onKeyDown={handleEnvaseKeyDown} onPaste={(event) => { if (envSelection) { event.preventDefault(); pasteEnvaseSelection(event.clipboardData.getData("text")); } }} onMouseUp={() => setEnvDragging(false)} onMouseLeave={() => setEnvDragging(false)} onMouseDown={(event) => { if (!event.target.closest?.('[data-env-cell="true"]') && !event.target.closest?.('[data-env-toolbar="true"]')) setEnvSelection(null); }}>
       <div style={styles.envDetailHeader}>
         <button type="button" onClick={() => setDetailSku("")} style={styles.actionSecondary}>← Volver al mapa general</button>
         <div><span style={styles.searchSummaryLabel}>Detalle de Envases</span><h3 style={styles.envDetailTitle}>{detailSku}</h3><p style={styles.envDetailDescription}>{detailProduct?.description || "Sin descripción registrada en el Maestro"}</p></div>
         <div style={styles.envDetailStats}><span><b>{metrics.streets.length}</b> calles</span><span><b>{metrics.capacity}</b> posiciones</span><span><b>{metrics.occupied}</b> ocupadas</span><span><b>{metrics.free}</b> libres</span><span><b>{metrics.utilization.toFixed(1)}%</b> utilización</span></div>
       </div>
-      <div style={styles.envDetailGrid}>{metrics.streets.map((street) => <EnvaseStreet key={street.id} street={street} cells={cells} setCells={setCells} canEdit={canEdit} focusLocation={focusLocation} />)}</div>
+      <div style={styles.envSelectionToolbar} data-env-toolbar="true"><strong>{envSelection ? `${selectedEnvaseKeys().length} posiciones seleccionadas` : "Selecciona una o varias posiciones"}</strong><div style={styles.actionGroup}><button type="button" onClick={copyEnvaseSelection} disabled={!envSelection} style={styles.actionSecondary}>Copiar</button><button type="button" onClick={clearEnvaseSelection} disabled={!envSelection || !canEdit} style={styles.actionDanger}>Suprimir</button><button type="button" onClick={() => setEnvSelection(null)} disabled={!envSelection} style={styles.actionSecondary}>Deseleccionar</button></div></div>
+      <div style={styles.envDetailGrid}>{metrics.streets.map((street) => <EnvaseStreet key={street.id} street={street} cells={cells} setCells={setCells} canEdit={canEdit} focusLocation={focusLocation} selection={envSelection} setSelection={setEnvSelection} dragging={envDragging} setDragging={setEnvDragging} />)}</div>
     </div>;
   }
 
-  return <div style={styles.envOverview}>
+  return <div style={styles.envOverview} onMouseDown={(event) => { if (!event.target.closest?.('[data-env-select="true"]')) setSelectedSku(""); }}>
     <aside style={styles.envSkuSidebar}>
       <div style={styles.envSidebarHeader}><span style={styles.searchSummaryLabel}>Códigos de Envases</span><strong>{envSkuList.length} SKU</strong></div>
       <input value={envQuery} onChange={(event) => setEnvQuery(event.target.value.replace(/\D/g, ""))} placeholder="Buscar código" style={styles.envSkuSearch} />
       <div style={styles.envSkuList}>{visibleSkus.map((sku) => {
         const metrics = skuMetrics(sku);
         const active = selectedSku === sku;
-        return <button key={sku} type="button" onClick={() => chooseSku(sku)} onDoubleClick={() => setDetailSku(sku)} style={{ ...styles.envSkuItem, ...(active ? styles.envSkuItemActive : {}) }}>
+        return <button key={sku} type="button" data-env-select="true" onClick={() => chooseSku(sku)} onDoubleClick={() => setDetailSku(sku)} style={{ ...styles.envSkuItem, ...(active ? styles.envSkuItemActive : {}) }}>
           <span><strong>{sku}</strong><small>{metrics.streets.length} {metrics.streets.length === 1 ? "calle" : "calles"} · {metrics.capacity} posiciones</small></span>
           <b>{metrics.utilization.toFixed(0)}%</b>
         </button>;
@@ -1132,12 +1205,11 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
         <div style={{ ...styles.envFixedArea, left: "44%", top: "1%", width: "8%", height: "4%", background: "#FFF200" }}>CALIDAD</div>
         <div style={{ ...styles.envFixedArea, left: "74%", top: "68%", width: "26%", height: "6%", background: "#C5CAE9", color: "#5E35B1" }}>Zona de etiquetas TC</div>
         <div style={{ ...styles.envFixedArea, left: "0.5%", top: "88%", width: "74%", height: "11%", background: "#000", color: "#FFF", fontSize: 16 }}>ZONA DE RACKS DRIVE IN</div>
-        <div style={{ ...styles.envFixedArea, left: "74.5%", top: "94%", width: "25.5%", height: "5%", fontSize: 16 }}>PAÑOL</div>
 
         {ENV_MAP_BLOCKS.map((block) => {
           const selected = selectedSku === block.sku;
           const faded = selectedSku && !selected;
-          return <button key={block.sku} type="button" onClick={() => chooseSku(block.sku)} onDoubleClick={() => setDetailSku(block.sku)} style={{ ...styles.envSkuMapBlock, left: block.x, top: block.y, width: block.w, height: block.h, background: block.color, color: block.text || "#101828", ...(selected ? styles.envMapStreetSelected : {}), ...(faded ? styles.envMapStreetFaded : {}) }}>
+          return <button key={block.sku} type="button" data-env-select="true" onClick={() => chooseSku(block.sku)} onDoubleClick={() => setDetailSku(block.sku)} style={{ ...styles.envSkuMapBlock, left: block.x, top: block.y, width: block.w, height: block.h, background: "linear-gradient(145deg,#E7FBFB,#C8F2F2)", color: COLORS.text, ...(selected ? styles.envMapStreetSelected : {}), ...(faded ? styles.envMapStreetFaded : {}) }}>
             <strong>{block.sku}</strong><span>{block.capacity} posiciones</span>
           </button>;
         })}
@@ -1157,7 +1229,7 @@ function EnvMapZone({ title, zone, selectedSku, onSelect, onOpen }) {
   })}</div></>;
 }
 
-function EnvaseStreet({ street, cells, setCells, canEdit, focusLocation }) {
+function EnvaseStreet({ street, cells, setCells, canEdit, focusLocation, selection, setSelection, dragging, setDragging }) {
   const positions = Array.from({ length: street.footprints }, (_, index) => index + 1);
   const levels = Array.from({ length: street.levels }, (_, index) => street.levels - index);
   const focused = focusLocation?.target === "envases" && focusLocation.unit === street.id;
@@ -1168,7 +1240,10 @@ function EnvaseStreet({ street, cells, setCells, canEdit, focusLocation }) {
       {levels.flatMap((level) => [<div key={`l-${level}`} style={styles.envLevelLabel}>N{level}</div>, ...positions.map((position) => {
         const key = `${street.id}-${level}-${position}`;
         const blocked = street.blocked?.includes(`${level}-${position}`);
-        return blocked ? <div key={key} style={styles.envBlocked}>NO DISP.</div> : <input key={key} value={cells[key] || ""} readOnly={!canEdit} data-storage-cell="true" onChange={(event) => canEdit && setCells((current) => ({ ...current, [key]: event.target.value }))} aria-label={`Envases ${street.sku}, calle ${street.streetOrder}, nivel ${level}, posición ${position}`} style={{ ...styles.envCell, ...(level === 3 ? styles.levelThree : level === 2 ? styles.levelTwo : styles.levelOne), ...(focusLocation?.target === "envases" && String(cells[key] || "").trim() === focusLocation.sku ? styles.focusedSkuCell : {}) }} />;
+        const row = street.levels - level;
+        const col = position - 1;
+        const selected = isCellSelected(selection, street.id, row, col);
+        return blocked ? <div key={key} style={styles.envBlocked}>NO DISP.</div> : <input key={key} value={cells[key] || ""} readOnly={!canEdit} data-storage-cell="true" data-env-cell="true" onMouseDown={(event) => { if (!canEdit) return; event.preventDefault(); setSelection({ group: street.id, anchor: { row, col }, focus: { row, col } }); setDragging(true); event.currentTarget.focus(); }} onMouseEnter={() => { if (canEdit && dragging && selection?.group === street.id) setSelection((current) => ({ ...current, focus: { row, col } })); }} onChange={(event) => canEdit && setCells((current) => ({ ...current, [key]: event.target.value }))} onDoubleClick={(event) => { if (canEdit) { event.currentTarget.focus(); event.currentTarget.select(); } }} aria-label={`Envases ${street.sku}, calle ${street.streetOrder}, nivel ${level}, posición ${position}`} style={{ ...styles.envCell, ...(level === 3 ? styles.levelThree : level === 2 ? styles.levelTwo : styles.levelOne), ...(selected ? styles.multiSelectedCell : {}), ...(focusLocation?.target === "envases" && String(cells[key] || "").trim() === focusLocation.sku ? styles.focusedSkuCell : {}) }} />;
       })])}
     </div>
   </article>;
@@ -1768,10 +1843,10 @@ const styles = {
   envMapPanel: { minWidth: 0, border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden", background: "#FFFFFF" },
   envMapHeader: { padding: 14, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", borderBottom: `1px solid ${COLORS.border}` },
   envSelectedSummary: { padding: "10px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 11 },
-  envMapCanvas: { position: "relative", minWidth: 820, aspectRatio: "1.62 / 1", overflow: "hidden", background: "#B8B6B6", border: "3px solid #172033" },
-  envFixedArea: { position: "absolute", display: "grid", placeItems: "center", border: "2px solid #172033", background: "#FFFFFF", color: "#101828", fontSize: 11, fontWeight: 900, textAlign: "center", boxSizing: "border-box" },
+  envMapCanvas: { position: "relative", minWidth: 820, aspectRatio: "1.62 / 1", overflow: "hidden", background: "linear-gradient(145deg,#EEF3F5,#DCE7E9)", border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: 18, boxShadow: "0 16px 36px rgba(16,24,40,.12)" },
+  envFixedArea: { position: "absolute", display: "grid", placeItems: "center", border: `1px solid ${COLORS.border}`, borderRadius: 10, background: "rgba(255,255,255,.88)", color: COLORS.muted, fontSize: 12, fontWeight: 700, letterSpacing: ".02em", textAlign: "center", boxSizing: "border-box", boxShadow: "0 5px 14px rgba(16,24,40,.06)" },
   verticalLabel: { position: "absolute", left: 3, top: "50%", transform: "translateY(-50%) rotate(-90deg)", fontSize: 7 },
-  envSkuMapBlock: { position: "absolute", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, flexWrap: "wrap", border: "2px solid #172033", fontSize: 9, fontWeight: 800, cursor: "pointer", boxSizing: "border-box", transition: ".18s ease" },
+  envSkuMapBlock: { position: "absolute", padding: 7, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap", border: `1.5px solid ${COLORS.turquoiseDark}`, borderRadius: 11, fontSize: 11, fontWeight: 650, cursor: "pointer", boxSizing: "border-box", transition: ".18s ease", boxShadow: "0 5px 13px rgba(0,154,155,.14)" },
   envLandmarkBlock: { display: "grid", placeItems: "center", border: "2px solid #98A2B3", borderRadius: 9, background: "#FFFFFF", color: "#475467", fontSize: 10, fontWeight: 900, textAlign: "center" },
   envMapZone: { padding: 8, border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: 10, overflow: "auto", background: "#F7FFFF" },
   envMapZoneTitle: { display: "block", marginBottom: 6, color: COLORS.turquoiseDark, fontSize: 10 },
@@ -1783,7 +1858,8 @@ const styles = {
   envDetailTitle: { margin: 0, fontSize: 24, color: COLORS.text },
   envDetailDescription: { margin: "4px 0 0", color: COLORS.muted, fontSize: 12, fontWeight: 600 },
   envDetailStats: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" },
-  envDetailGrid: { padding: 16, display: "grid", gap: 14, background: "#F3F6F8" },
+  envSelectionToolbar: { padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", borderBottom: `1px solid ${COLORS.border}`, background: "#F7FFFF", fontSize: 11 },
+    envDetailGrid: { padding: 16, display: "grid", gap: 14, background: "#F3F6F8" },
   envLayout: { border: `1px solid ${COLORS.border}`, borderRadius: 16, overflow: "hidden", background: "#FFFFFF" },
   envCanvas: { padding: 18, display: "grid", gap: 20, background: "#F3F6F8" },
   envZone: { padding: 14, border: `1px solid ${COLORS.border}`, borderRadius: 14, background: "#FFFFFF" },
@@ -1791,7 +1867,7 @@ const styles = {
   envLandmarks: { display: "flex", gap: 6, flexWrap: "wrap" },
   envLandmarks: { display: "flex", gap: 6, flexWrap: "wrap" },
   envStreetGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(480px,1fr))", gap: 14, overflowX: "auto" },
-  envStreet: { minWidth: 480, border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: 12, overflow: "hidden", background: "#FFFFFF" },
+  envStreet: { minWidth: 480, border: `1.5px solid ${COLORS.turquoiseDark}`, borderRadius: 14, overflow: "hidden", background: "#FFFFFF" },
   envStreetHeader: { padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", background: COLORS.turquoise, color: "#FFFFFF" },
   envReference: { padding: "5px 10px", background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 9, fontWeight: 800 },
   envMatrix: { display: "grid", overflowX: "auto" },
