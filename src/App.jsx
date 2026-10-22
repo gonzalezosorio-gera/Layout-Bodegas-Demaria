@@ -26,29 +26,46 @@ const RACKS = [
  ];
 
 const ENVASE_STREETS = [
-  { id: 1, capacity: 42, footprints: 14, levels: 3, referenceSku: "20104232", zone: "superior" },
-  { id: 2, capacity: 40, footprints: 20, levels: 2, referenceSku: "20103258", zone: "superior" },
-  { id: 3, capacity: 20, footprints: 10, levels: 2, referenceSku: "20103258", zone: "central" },
-  { id: 4, capacity: 12, footprints: 6, levels: 2, referenceSku: "20103113", zone: "central" },
-  { id: 5, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103235", zone: "central" },
-  { id: 6, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103239", zone: "central" },
-  { id: 7, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103237", zone: "central" },
-  { id: 8, capacity: 20, footprints: 10, levels: 2, referenceSku: "20103244", zone: "central" },
-  { id: 9, capacity: 20, footprints: 10, levels: 2, referenceSku: "20103243", zone: "central" },
-  { id: 10, capacity: 20, footprints: 10, levels: 2, referenceSku: "20103249", zone: "central" },
-  { id: 11, capacity: 18, footprints: 9, levels: 2, referenceSku: "20101418", zone: "derecho" },
-  { id: 12, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103171", zone: "derecho" },
-  { id: 13, capacity: 7, footprints: 4, levels: 2, blocked: ["2-4"], referenceSku: "20103238", zone: "patio" },
-  { id: 14, capacity: 12, footprints: 6, levels: 2, referenceSku: "20103260", zone: "patio" },
-  { id: 15, capacity: 14, footprints: 7, levels: 2, referenceSku: "20103260", zone: "patio" },
-  { id: 16, capacity: 16, footprints: 8, levels: 2, referenceSku: "20103266", zone: "patio" },
-  { id: 17, capacity: 24, footprints: 12, levels: 2, referenceSku: "20103106", zone: "patio" },
-  { id: 18, capacity: 16, footprints: 8, levels: 2, referenceSku: "20103109", zone: "patio" },
-  { id: 19, capacity: 14, footprints: 7, levels: 2, referenceSku: "20103109", zone: "patio" },
-  { id: 20, capacity: 16, footprints: 8, levels: 2, referenceSku: "20103261", zone: "patio" },
-  { id: 21, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103241", zone: "derecho" },
-  { id: 22, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103236", zone: "derecho" },
-  { id: 23, capacity: 16, footprints: 8, levels: 2, referenceSku: "20103248", zone: "derecho" },
+  { id: 1, sku: "20104232", streetOrder: 1, capacity: 42, footprints: 14, levels: 3, zone: "superior" },
+  { id: 2, sku: "20104232", streetOrder: 2, capacity: 42, footprints: 14, levels: 3, zone: "superior" },
+  { id: 3, sku: "20103258", streetOrder: 1, capacity: 40, footprints: 20, levels: 2, zone: "superior" },
+  { id: 4, sku: "20103258", streetOrder: 2, capacity: 40, footprints: 20, levels: 2, zone: "superior" },
+  { id: 5, sku: "20103258", streetOrder: 3, capacity: 40, footprints: 20, levels: 2, zone: "superior" },
+  { id: 6, sku: "20103258", streetOrder: 4, capacity: 20, footprints: 10, levels: 2, zone: "superior" },
+  { id: 7, sku: "20103258", streetOrder: 5, capacity: 20, footprints: 10, levels: 2, zone: "superior" },
+  { id: 8, sku: "20103244", streetOrder: 1, capacity: 20, footprints: 10, levels: 2, zone: "central" },
+  { id: 9, sku: "20103244", streetOrder: 2, capacity: 20, footprints: 10, levels: 2, zone: "central" },
+  { id: 10, sku: "20103243", streetOrder: 1, capacity: 20, footprints: 10, levels: 2, zone: "central" },
+  { id: 11, sku: "20103243", streetOrder: 2, capacity: 20, footprints: 10, levels: 2, zone: "central" },
+  { id: 12, sku: "20103249", streetOrder: 1, capacity: 20, footprints: 10, levels: 2, zone: "central" },
+  { id: 13, sku: "20103238", streetOrder: 1, capacity: 7, footprints: 4, levels: 2, zone: "patio", blocked: ["2-4"] },
+  { id: 14, sku: "20103238", streetOrder: 2, capacity: 7, footprints: 4, levels: 2, zone: "patio", blocked: ["2-4"] },
+  { id: 15, sku: "20103238", streetOrder: 3, capacity: 7, footprints: 4, levels: 2, zone: "patio", blocked: ["2-4"] },
+  { id: 16, sku: "20103260", streetOrder: 1, capacity: 12, footprints: 6, levels: 2, zone: "patio" },
+  { id: 17, sku: "20103260", streetOrder: 2, capacity: 14, footprints: 7, levels: 2, zone: "patio" },
+  { id: 18, sku: "20103260", streetOrder: 3, capacity: 14, footprints: 7, levels: 2, zone: "patio" },
+  { id: 19, sku: "20103260", streetOrder: 4, capacity: 14, footprints: 7, levels: 2, zone: "patio" },
+  { id: 20, sku: "20103260", streetOrder: 5, capacity: 10, footprints: 5, levels: 2, zone: "patio" },
+  { id: 21, sku: "20103266", streetOrder: 1, capacity: 16, footprints: 8, levels: 2, zone: "patio" },
+  { id: 22, sku: "20103266", streetOrder: 2, capacity: 16, footprints: 8, levels: 2, zone: "patio" },
+  { id: 23, sku: "20103109", streetOrder: 1, capacity: 16, footprints: 8, levels: 2, zone: "patio" },
+  { id: 24, sku: "20103109", streetOrder: 2, capacity: 14, footprints: 7, levels: 2, zone: "patio" },
+  { id: 25, sku: "20103261", streetOrder: 1, capacity: 16, footprints: 8, levels: 2, zone: "patio" },
+  { id: 26, sku: "20103261", streetOrder: 2, capacity: 16, footprints: 8, levels: 2, zone: "patio" },
+  { id: 27, sku: "20103261", streetOrder: 3, capacity: 16, footprints: 8, levels: 2, zone: "patio" },
+  { id: 28, sku: "20103248", streetOrder: 1, capacity: 16, footprints: 8, levels: 2, zone: "derecho" },
+  { id: 29, sku: "20103248", streetOrder: 2, capacity: 16, footprints: 8, levels: 2, zone: "derecho" },
+  { id: 30, sku: "20103236", streetOrder: 1, capacity: 18, footprints: 9, levels: 2, zone: "derecho" },
+  { id: 31, sku: "20103236", streetOrder: 2, capacity: 18, footprints: 9, levels: 2, zone: "derecho" },
+  { id: 32, sku: "20103241", streetOrder: 1, capacity: 18, footprints: 9, levels: 2, zone: "derecho" },
+  { id: 33, sku: "20103241", streetOrder: 2, capacity: 18, footprints: 9, levels: 2, zone: "derecho" },
+  { id: 34, sku: "20103171", streetOrder: 1, capacity: 18, footprints: 9, levels: 2, zone: "derecho" },
+  { id: 35, sku: "20101418", streetOrder: 1, capacity: 18, footprints: 9, levels: 2, zone: "derecho" },
+  { id: 36, sku: "20103237", streetOrder: 1, capacity: 18, footprints: 9, levels: 2, zone: "central" },
+  { id: 37, sku: "20103237", streetOrder: 2, capacity: 18, footprints: 9, levels: 2, zone: "central" },
+  { id: 38, sku: "20103239", streetOrder: 1, capacity: 18, footprints: 9, levels: 2, zone: "central" },
+  { id: 39, sku: "20103235", streetOrder: 1, capacity: 18, footprints: 9, levels: 2, zone: "central" },
+  { id: 40, sku: "20103113", streetOrder: 1, capacity: 12, footprints: 6, levels: 2, zone: "central" },
 ];
 
 export default function App() {
@@ -523,7 +540,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V6.0 envases</span>
+        <span style={styles.status}>V6.1 envases interactivo</span>
       </div>
       {children}
     </section>
@@ -1011,26 +1028,95 @@ function Bodega60({ activeTab, onTabChange, envaseCells, setEnvaseCells, canEdit
 }
 
 function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
+  const [selectedSku, setSelectedSku] = useState("");
+  const [detailSku, setDetailSku] = useState("");
+  const [envQuery, setEnvQuery] = useState("");
+
   useEffect(() => {
     if (focusLocation?.target !== "envases") return;
+    const street = ENVASE_STREETS.find((item) => item.id === focusLocation.unit);
+    if (street) {
+      setSelectedSku(street.sku);
+      setDetailSku(street.sku);
+    }
     const timer = window.setTimeout(() => document.getElementById(`env-street-${focusLocation.unit}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 180);
     return () => window.clearTimeout(timer);
   }, [focusLocation]);
 
-  const zones = [
-    { id: "superior", title: "Sector superior", landmarks: ["ZONA ANILINAS", "FRACCIONAMIENTO", "OFICINA", "CALIDAD"] },
-    { id: "central", title: "Calles centrales · KANBAN", landmarks: ["KANBAN", "EXT."] },
-    { id: "patio", title: "Patio principal de envases", landmarks: [] },
-    { id: "derecho", title: "Sector derecho", landmarks: ["ETIQUETAS TC", "PAÑOL", "DRIVE IN"] },
-  ];
+  const envSkuList = [...new Set(ENVASE_STREETS.map((street) => street.sku))];
+  const visibleSkus = envSkuList.filter((sku) => sku.includes(envQuery.trim()));
 
-  return <div style={styles.envLayout}>
-    <div style={styles.layoutToolbar}><div><h3 style={styles.areaTitle}>Plano de Envases</h3><p style={styles.areaDescription}>Pallets a piso con dos niveles; Calle ENV-01 con tres niveles y Calle ENV-13 con una posición superior bloqueada.</p></div><span style={styles.summaryBadge}>{ENVASE_STREETS.reduce((sum, street) => sum + street.capacity, 0)} posiciones</span></div>
-    <div style={styles.envCanvas}>{zones.map((zone) => <section key={zone.id} style={styles.envZone}>
-      <div style={styles.envZoneHeader}><strong>{zone.title}</strong><div style={styles.envLandmarks}>{zone.landmarks.map((item) => <span key={item}>{item}</span>)}</div></div>
-      <div style={styles.envStreetGrid}>{ENVASE_STREETS.filter((street) => street.zone === zone.id).map((street) => <EnvaseStreet key={street.id} street={street} cells={cells} setCells={setCells} canEdit={canEdit} focusLocation={focusLocation} />)}</div>
-    </section>)}</div>
+  function skuMetrics(sku) {
+    const streets = ENVASE_STREETS.filter((street) => street.sku === sku);
+    const capacity = streets.reduce((sum, street) => sum + street.capacity, 0);
+    const occupied = Object.entries(cells).filter(([key, value]) => {
+      const streetId = Number(key.split("-")[0]);
+      return streets.some((street) => street.id === streetId) && String(value || "").trim();
+    }).length;
+    return { streets, capacity, occupied, free: Math.max(capacity - occupied, 0), utilization: capacity ? occupied / capacity * 100 : 0 };
+  }
+
+  function chooseSku(sku) {
+    setSelectedSku(sku);
+    setDetailSku("");
+  }
+
+  if (detailSku) {
+    const metrics = skuMetrics(detailSku);
+    return <div style={styles.envLayout}>
+      <div style={styles.envDetailHeader}>
+        <button type="button" onClick={() => setDetailSku("")} style={styles.actionSecondary}>← Volver al mapa general</button>
+        <div><span style={styles.searchSummaryLabel}>Detalle de Envases</span><h3 style={styles.envDetailTitle}>{detailSku}</h3></div>
+        <div style={styles.envDetailStats}><span><b>{metrics.streets.length}</b> calles</span><span><b>{metrics.capacity}</b> posiciones</span><span><b>{metrics.occupied}</b> ocupadas</span><span><b>{metrics.free}</b> libres</span><span><b>{metrics.utilization.toFixed(1)}%</b> utilización</span></div>
+      </div>
+      <div style={styles.envDetailGrid}>{metrics.streets.map((street) => <EnvaseStreet key={street.id} street={street} cells={cells} setCells={setCells} canEdit={canEdit} focusLocation={focusLocation} />)}</div>
+    </div>;
+  }
+
+  return <div style={styles.envOverview}>
+    <aside style={styles.envSkuSidebar}>
+      <div style={styles.envSidebarHeader}><span style={styles.searchSummaryLabel}>Códigos de Envases</span><strong>{envSkuList.length} SKU</strong></div>
+      <input value={envQuery} onChange={(event) => setEnvQuery(event.target.value.replace(/\D/g, ""))} placeholder="Buscar código" style={styles.envSkuSearch} />
+      <div style={styles.envSkuList}>{visibleSkus.map((sku) => {
+        const metrics = skuMetrics(sku);
+        const active = selectedSku === sku;
+        return <button key={sku} type="button" onClick={() => chooseSku(sku)} onDoubleClick={() => setDetailSku(sku)} style={{ ...styles.envSkuItem, ...(active ? styles.envSkuItemActive : {}) }}>
+          <span><strong>{sku}</strong><small>{metrics.streets.length} {metrics.streets.length === 1 ? "calle" : "calles"} · {metrics.capacity} posiciones</small></span>
+          <b>{metrics.utilization.toFixed(0)}%</b>
+        </button>;
+      })}</div>
+      <div style={styles.envSidebarHint}>Un clic resalta el mapa. Doble clic abre las posiciones y sus niveles.</div>
+    </aside>
+
+    <section style={styles.envMapPanel}>
+      <div style={styles.envMapHeader}><div><h3 style={styles.areaTitle}>Mapa general de Envases</h3><p style={styles.areaDescription}>Primera aproximación basada en el Excel. La geometría podrá ajustarse sin cambiar las calles ni sus posiciones.</p></div><span style={styles.summaryBadge}>{ENVASE_STREETS.reduce((sum, street) => sum + street.capacity, 0)} posiciones</span></div>
+      {selectedSku && (() => { const metrics = skuMetrics(selectedSku); return <div style={styles.envSelectedSummary}><strong>{selectedSku}</strong><span>{metrics.streets.length} calles</span><span>{metrics.capacity} posiciones</span><span>{metrics.occupied} ocupadas</span><span>{metrics.free} libres</span><button type="button" onClick={() => setDetailSku(selectedSku)} style={styles.assignmentButton}>Abrir detalle</button></div>; })()}
+      <div style={styles.envMapCanvas}>
+        <div style={{ ...styles.envLandmarkBlock, gridArea: "anilinas" }}>ZONA ANILINAS</div>
+        <div style={{ ...styles.envLandmarkBlock, gridArea: "oficina" }}>FRACCIONAMIENTO · OFICINA</div>
+        <div style={{ ...styles.envLandmarkBlock, gridArea: "calidad" }}>CALIDAD</div>
+        <div style={{ ...styles.envLandmarkBlock, gridArea: "kanban" }}>KANBAN</div>
+        <div style={{ ...styles.envLandmarkBlock, gridArea: "etiquetas" }}>ETIQUETAS TC</div>
+        <div style={{ ...styles.envLandmarkBlock, gridArea: "drive" }}>ZONA DRIVE IN</div>
+        <div style={{ ...styles.envLandmarkBlock, gridArea: "panol" }}>PAÑOL</div>
+        <div style={{ ...styles.envMapZone, gridArea: "superior" }}><EnvMapZone title="Sector superior" zone="superior" selectedSku={selectedSku} onSelect={chooseSku} onOpen={setDetailSku} /></div>
+        <div style={{ ...styles.envMapZone, gridArea: "central" }}><EnvMapZone title="Calles centrales" zone="central" selectedSku={selectedSku} onSelect={chooseSku} onOpen={setDetailSku} /></div>
+        <div style={{ ...styles.envMapZone, gridArea: "patio" }}><EnvMapZone title="Patio principal" zone="patio" selectedSku={selectedSku} onSelect={chooseSku} onOpen={setDetailSku} /></div>
+        <div style={{ ...styles.envMapZone, gridArea: "derecho" }}><EnvMapZone title="Sector derecho" zone="derecho" selectedSku={selectedSku} onSelect={chooseSku} onOpen={setDetailSku} /></div>
+      </div>
+    </section>
   </div>;
+}
+
+function EnvMapZone({ title, zone, selectedSku, onSelect, onOpen }) {
+  const streets = ENVASE_STREETS.filter((street) => street.zone === zone);
+  return <><strong style={styles.envMapZoneTitle}>{title}</strong><div style={styles.envMapStreets}>{streets.map((street) => {
+    const selected = selectedSku === street.sku;
+    const faded = selectedSku && !selected;
+    return <button key={street.id} type="button" onClick={() => onSelect(street.sku)} onDoubleClick={() => onOpen(street.sku)} style={{ ...styles.envMapStreet, ...(selected ? styles.envMapStreetSelected : {}), ...(faded ? styles.envMapStreetFaded : {}) }}>
+      <strong>{street.sku}</strong><span>C{String(street.streetOrder).padStart(2,"0")} · {street.capacity} pos.</span>
+    </button>;
+  })}</div></>;
 }
 
 function EnvaseStreet({ street, cells, setCells, canEdit, focusLocation }) {
@@ -1038,14 +1124,13 @@ function EnvaseStreet({ street, cells, setCells, canEdit, focusLocation }) {
   const levels = Array.from({ length: street.levels }, (_, index) => street.levels - index);
   const focused = focusLocation?.target === "envases" && focusLocation.unit === street.id;
   return <article id={`env-street-${street.id}`} style={{ ...styles.envStreet, ...(focused ? styles.focusedUnit : {}) }}>
-    <div style={styles.envStreetHeader}><div><strong>CALLE ENV-{String(street.id).padStart(2,"0")}</strong><small>{street.footprints} huellas · {street.levels} niveles</small></div><b>{street.capacity} pos.</b></div>
-    <div style={styles.envReference}>Referencia Excel: {street.referenceSku}</div>
+    <div style={styles.envStreetHeader}><div><strong>{street.sku} · CALLE {String(street.streetOrder).padStart(2,"0")}</strong><small>{street.footprints} huellas · {street.levels} niveles</small></div><b>{street.capacity} pos.</b></div>
     <div style={{ ...styles.envMatrix, gridTemplateColumns: `52px repeat(${street.footprints}, minmax(52px,1fr))` }}>
       <div style={styles.envCorner}>NIVEL</div>{positions.map((position) => <div key={position} style={styles.envPositionHeader}>P{position}</div>)}
       {levels.flatMap((level) => [<div key={`l-${level}`} style={styles.envLevelLabel}>N{level}</div>, ...positions.map((position) => {
         const key = `${street.id}-${level}-${position}`;
         const blocked = street.blocked?.includes(`${level}-${position}`);
-        return blocked ? <div key={key} style={styles.envBlocked}>NO DISP.</div> : <input key={key} value={cells[key] || ""} readOnly={!canEdit} data-storage-cell="true" onChange={(event) => canEdit && setCells((current) => ({ ...current, [key]: event.target.value }))} aria-label={`Envases calle ${street.id}, nivel ${level}, posición ${position}`} style={{ ...styles.envCell, ...(level === 3 ? styles.levelThree : level === 2 ? styles.levelTwo : styles.levelOne), ...(focusLocation?.target === "envases" && String(cells[key] || "").trim() === focusLocation.sku ? styles.focusedSkuCell : {}) }} />;
+        return blocked ? <div key={key} style={styles.envBlocked}>NO DISP.</div> : <input key={key} value={cells[key] || ""} readOnly={!canEdit} data-storage-cell="true" onChange={(event) => canEdit && setCells((current) => ({ ...current, [key]: event.target.value }))} aria-label={`Envases ${street.sku}, calle ${street.streetOrder}, nivel ${level}, posición ${position}`} style={{ ...styles.envCell, ...(level === 3 ? styles.levelThree : level === 2 ? styles.levelTwo : styles.levelOne), ...(focusLocation?.target === "envases" && String(cells[key] || "").trim() === focusLocation.sku ? styles.focusedSkuCell : {}) }} />;
       })])}
     </div>
   </article>;
@@ -1634,6 +1719,29 @@ const styles = {
   actionSecondary: { padding: "6px 8px", border: `1px solid ${COLORS.border}`, borderRadius: 7, background: "#FFFFFF", color: COLORS.muted, fontSize: 10, fontWeight: 800, cursor: "pointer" },
   actionDanger: { padding: "6px 8px", border: "1px solid #FDA29B", borderRadius: 7, background: "#FFF1F1", color: "#B42318", fontSize: 10, fontWeight: 800, cursor: "pointer" },
   emptyTable: { padding: 28, textAlign: "center", color: COLORS.muted },
+  envOverview: { display: "grid", gridTemplateColumns: "280px minmax(0,1fr)", gap: 16, alignItems: "start" },
+  envSkuSidebar: { position: "sticky", top: 12, maxHeight: "calc(100vh - 40px)", display: "grid", gridTemplateRows: "auto auto minmax(0,1fr) auto", border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden", background: "#FFFFFF" },
+  envSidebarHeader: { padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#F7FFFF" },
+  envSkuSearch: { margin: "0 12px 10px", padding: "9px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 9, outline: "none" },
+  envSkuList: { padding: "0 8px 8px", display: "grid", gap: 5, overflowY: "auto" },
+  envSkuItem: { padding: "9px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#FFFFFF", color: COLORS.text, textAlign: "left", cursor: "pointer" },
+  envSkuItemActive: { borderColor: COLORS.turquoiseDark, background: "#DDF9F8", boxShadow: "inset 4px 0 0 #00C1C2" },
+  envSidebarHint: { padding: 10, borderTop: `1px solid ${COLORS.border}`, background: "#F8FAFC", color: COLORS.muted, fontSize: 9 },
+  envMapPanel: { minWidth: 0, border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden", background: "#FFFFFF" },
+  envMapHeader: { padding: 14, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", borderBottom: `1px solid ${COLORS.border}` },
+  envSelectedSummary: { padding: "10px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 11 },
+  envMapCanvas: { minWidth: 780, minHeight: 680, padding: 12, display: "grid", gridTemplateColumns: "1.1fr 2.2fr 1.15fr", gridTemplateRows: "70px 180px 300px 80px", gridTemplateAreas: '"anilinas superior calidad" "oficina superior etiquetas" "kanban patio derecho" "drive drive panol"', gap: 10, background: "#E9EDF1" },
+  envLandmarkBlock: { display: "grid", placeItems: "center", border: "2px solid #98A2B3", borderRadius: 9, background: "#FFFFFF", color: "#475467", fontSize: 10, fontWeight: 900, textAlign: "center" },
+  envMapZone: { padding: 8, border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: 10, overflow: "auto", background: "#F7FFFF" },
+  envMapZoneTitle: { display: "block", marginBottom: 6, color: COLORS.turquoiseDark, fontSize: 10 },
+  envMapStreets: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(90px,1fr))", gap: 5 },
+  envMapStreet: { minHeight: 45, padding: 5, display: "grid", gap: 2, placeItems: "center", border: `1px solid ${COLORS.turquoiseDark}`, borderRadius: 7, background: "#FFFFFF", color: COLORS.text, fontSize: 8, cursor: "pointer", transition: ".18s ease" },
+  envMapStreetSelected: { transform: "scale(1.04)", zIndex: 2, background: "#FFF3BF", borderColor: "#F59E0B", boxShadow: "0 0 0 3px rgba(245,158,11,.25)" },
+  envMapStreetFaded: { opacity: .18, filter: "grayscale(.8)" },
+  envDetailHeader: { padding: 16, display: "grid", gridTemplateColumns: "auto minmax(180px,1fr) auto", alignItems: "center", gap: 14, borderBottom: `1px solid ${COLORS.border}` },
+  envDetailTitle: { margin: 0, fontSize: 24, color: COLORS.text },
+  envDetailStats: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" },
+  envDetailGrid: { padding: 16, display: "grid", gap: 14, background: "#F3F6F8" },
   envLayout: { border: `1px solid ${COLORS.border}`, borderRadius: 16, overflow: "hidden", background: "#FFFFFF" },
   envCanvas: { padding: 18, display: "grid", gap: 20, background: "#F3F6F8" },
   envZone: { padding: 14, border: `1px solid ${COLORS.border}`, borderRadius: 14, background: "#FFFFFF" },
