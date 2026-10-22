@@ -379,7 +379,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V5.1 importaciones</span>
+        <span style={styles.status}>V5.1.1 stock por lotes</span>
       </div>
       {children}
     </section>
@@ -1088,17 +1088,47 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
       const result = await supabase.from("products").upsert(payload, { onConflict: "sku" });
       if (result.error) importErrors.push({ rowNumber: 0, reason: result.error.message }); else success = payload.length;
     } else {
-      for (const row of importPreview.valid) {
-        const result = await supabase.from("products").update({ stock: row.stock, updated_by: userId, updated_at: new Date().toISOString() }).eq("sku", row.sku).select("sku");
-        if (result.error || !result.data?.length) importErrors.push({ rowNumber: 0, reason: `SKU no encontrado: ${row.sku}` }); else success += 1;
+      const productMap = new Map(products.map((product) => [String(product.sku).trim(), product]));
+      const now = new Date().toISOString();
+      const stockPayload = [];
+
+      importPreview.valid.forEach((row) => {
+        const existing = productMap.get(String(row.sku).trim());
+        if (!existing) {
+          importErrors.push({ rowNumber: 0, reason: `SKU no encontrado: ${row.sku}` });
+          return;
+        }
+        stockPayload.push({
+          sku: existing.sku,
+          description: existing.description || "",
+          stock: row.stock,
+          units_per_pallet: Number(existing.units_per_pallet) || 0,
+          observation: existing.observation || "",
+          updated_by: userId,
+          updated_at: now,
+        });
+      });
+
+      if (stockPayload.length) {
+        const chunkSize = 500;
+        for (let start = 0; start < stockPayload.length; start += chunkSize) {
+          const chunk = stockPayload.slice(start, start + chunkSize);
+          const result = await supabase.from("products").upsert(chunk, { onConflict: "sku" });
+          if (result.error) {
+            importErrors.push({ rowNumber: 0, reason: `Error al actualizar lote: ${result.error.message}` });
+            break;
+          }
+          success += chunk.length;
+        }
       }
     }
 
-    await supabase.from("import_history").insert({ import_type: importType, file_name: importPreview.fileName, total_rows: importPreview.total, successful_rows: success, error_rows: importErrors.length, imported_by: userId });
+    const historyResult = await supabase.from("import_history").insert({ import_type: importType, file_name: importPreview.fileName, total_rows: importPreview.total, successful_rows: success, error_rows: importErrors.length, imported_by: userId });
+    if (historyResult.error) importErrors.push({ rowNumber: 0, reason: `No se pudo registrar el historial: ${historyResult.error.message}` });
     setMessage(`Importación finalizada: ${success} filas actualizadas, ${importErrors.length} con error.`);
     setImportPreview(importErrors.length ? { ...importPreview, errors: importErrors, valid: [] } : null);
-    setImporting(false);
     await loadProducts();
+    setImporting(false);
   }
 
   const rows = products.map(enriched).filter((item) => {
