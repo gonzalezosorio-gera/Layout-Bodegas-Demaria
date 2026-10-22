@@ -23,6 +23,32 @@ const RACKS = [
   { number: 9, positions: 6, className: "rack9" },
   { number: 10, positions: 6, className: "rack10" },
   { number: 11, positions: 6, className: "rack11" },
+ ];
+
+const ENVASE_STREETS = [
+  { id: 1, capacity: 42, footprints: 14, levels: 3, referenceSku: "20104232", zone: "superior" },
+  { id: 2, capacity: 40, footprints: 20, levels: 2, referenceSku: "20103258", zone: "superior" },
+  { id: 3, capacity: 20, footprints: 10, levels: 2, referenceSku: "20103258", zone: "central" },
+  { id: 4, capacity: 12, footprints: 6, levels: 2, referenceSku: "20103113", zone: "central" },
+  { id: 5, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103235", zone: "central" },
+  { id: 6, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103239", zone: "central" },
+  { id: 7, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103237", zone: "central" },
+  { id: 8, capacity: 20, footprints: 10, levels: 2, referenceSku: "20103244", zone: "central" },
+  { id: 9, capacity: 20, footprints: 10, levels: 2, referenceSku: "20103243", zone: "central" },
+  { id: 10, capacity: 20, footprints: 10, levels: 2, referenceSku: "20103249", zone: "central" },
+  { id: 11, capacity: 18, footprints: 9, levels: 2, referenceSku: "20101418", zone: "derecho" },
+  { id: 12, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103171", zone: "derecho" },
+  { id: 13, capacity: 7, footprints: 4, levels: 2, blocked: ["2-4"], referenceSku: "20103238", zone: "patio" },
+  { id: 14, capacity: 12, footprints: 6, levels: 2, referenceSku: "20103260", zone: "patio" },
+  { id: 15, capacity: 14, footprints: 7, levels: 2, referenceSku: "20103260", zone: "patio" },
+  { id: 16, capacity: 16, footprints: 8, levels: 2, referenceSku: "20103266", zone: "patio" },
+  { id: 17, capacity: 24, footprints: 12, levels: 2, referenceSku: "20103106", zone: "patio" },
+  { id: 18, capacity: 16, footprints: 8, levels: 2, referenceSku: "20103109", zone: "patio" },
+  { id: 19, capacity: 14, footprints: 7, levels: 2, referenceSku: "20103109", zone: "patio" },
+  { id: 20, capacity: 16, footprints: 8, levels: 2, referenceSku: "20103261", zone: "patio" },
+  { id: 21, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103241", zone: "derecho" },
+  { id: 22, capacity: 18, footprints: 9, levels: 2, referenceSku: "20103236", zone: "derecho" },
+  { id: 23, capacity: 16, footprints: 8, levels: 2, referenceSku: "20103248", zone: "derecho" },
 ];
 
 export default function App() {
@@ -44,9 +70,11 @@ export default function App() {
   const [focusLocation, setFocusLocation] = useState(null);
   const [rackCells, setRackCells] = useState({});
   const [driveCells, setDriveCells] = useState({});
+  const [envaseCells, setEnvaseCells] = useState({});
   const hydratedRef = useRef(false);
   const previousRackRef = useRef({});
   const previousDriveRef = useRef({});
+  const previousEnvaseRef = useRef({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data, error }) => {
@@ -62,6 +90,7 @@ export default function App() {
         setProfile(null);
         setRackCells({});
         setDriveCells({});
+        setEnvaseCells({});
         hydratedRef.current = false;
       }
     });
@@ -82,8 +111,8 @@ export default function App() {
         supabase
           .from("warehouse_locations")
           .select("area, unit_number, level, position, sku")
-          .eq("warehouse", "70")
-          .in("area", ["racks_selectivos", "drive_in"]),
+          .in("warehouse", ["70", "60"])
+          .in("area", ["racks_selectivos", "drive_in", "envases"]),
       ]);
 
       if (cancelled) return;
@@ -94,16 +123,20 @@ export default function App() {
 
       const nextRacks = {};
       const nextDrive = {};
+      const nextEnvases = {};
       (locationsResult.data ?? []).forEach((row) => {
         const key = `${row.unit_number}-${row.level}-${row.position}`;
         if (row.area === "racks_selectivos") nextRacks[key] = row.sku;
         if (row.area === "drive_in") nextDrive[key] = row.sku;
+        if (row.area === "envases") nextEnvases[key] = row.sku;
       });
 
       previousRackRef.current = nextRacks;
       previousDriveRef.current = nextDrive;
+      previousEnvaseRef.current = nextEnvases;
       setRackCells(nextRacks);
       setDriveCells(nextDrive);
+      setEnvaseCells(nextEnvases);
       hydratedRef.current = true;
       setDataLoading(false);
     }
@@ -126,7 +159,13 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [driveCells, session?.user?.id, canEdit]);
 
-  async function syncArea(area, currentCells, previousRef) {
+  useEffect(() => {
+    if (!hydratedRef.current || !session?.user || !canEdit) return;
+    const timer = window.setTimeout(() => syncArea("envases", envaseCells, previousEnvaseRef, "60"), 650);
+    return () => window.clearTimeout(timer);
+  }, [envaseCells, session?.user?.id, canEdit]);
+
+  async function syncArea(area, currentCells, previousRef, warehouse = "70") {
     const previous = previousRef.current;
     const changedEntries = Object.entries(currentCells).filter(([key, value]) => value !== previous[key]);
     const deletedKeys = Object.keys(previous).filter((key) => !(key in currentCells) || !String(currentCells[key] ?? "").trim());
@@ -140,7 +179,7 @@ export default function App() {
       .map(([key, value]) => {
         const [unitNumber, level, position] = key.split("-").map(Number);
         return {
-          warehouse: "70",
+          warehouse,
           area,
           unit_number: unitNumber,
           level,
@@ -165,7 +204,7 @@ export default function App() {
         const result = await supabase
           .from("warehouse_locations")
           .delete()
-          .eq("warehouse", "70")
+          .eq("warehouse", warehouse)
           .eq("area", area)
           .eq("unit_number", unitNumber)
           .eq("level", level)
@@ -199,6 +238,12 @@ export default function App() {
           .map(([key, sku]) => {
             const [street, level, depth] = key.split("-");
             return { id: `drive-${key}`, sku, area: "Racks Drive In", coordinate: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`, target: "drive", unit: Number(street), level: Number(level), slot: Number(depth) };
+          }),
+        ...Object.entries(envaseCells)
+          .filter(([, sku]) => String(sku).toLowerCase().includes(normalizedSearch))
+          .map(([key, sku]) => {
+            const [street, level, position] = key.split("-");
+            return { id: `envase-${key}`, sku, area: "Envases", coordinate: `ENV-C${String(street).padStart(2, "0")} · N${level} · P${position}`, target: "envases", unit: Number(street), level: Number(level), slot: Number(position) };
           }),
       ]
     : [];
@@ -242,8 +287,13 @@ export default function App() {
 
   function navigateToResult(result) {
     setFocusLocation({ target: result.target, unit: result.unit, sku: String(result.sku || searchSku).trim() });
-    setMainTab("b70");
-    setSub70(result.target);
+    if (result.target === "envases") {
+      setMainTab("b60");
+      setSub60("envases");
+    } else {
+      setMainTab("b70");
+      setSub70(result.target);
+    }
     setSearchOpen(false);
   }
 
@@ -356,8 +406,8 @@ export default function App() {
       </nav>
       <main style={styles.content}>
         {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} focusLocation={focusLocation} />}
-        {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} />}
-        {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(location) => { setFocusLocation(location); setMainTab("b70"); setSub70(location.target); }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
+        {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} canEdit={canEdit} focusLocation={focusLocation} />}
+        {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(location) => { setFocusLocation(location); if (location.target === "envases") { setMainTab("b60"); setSub60("envases"); } else { setMainTab("b70"); setSub70(location.target); } }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
         {mainTab === "admin" && profile.role === "admin" && <AdminProfiles currentUserId={session.user.id} />}
       </main>
     </div>
@@ -473,7 +523,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V5.3.1 deselección automática</span>
+        <span style={styles.status}>V6.0 envases</span>
       </div>
       {children}
     </section>
@@ -948,27 +998,57 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, sel
   );
 }
 
-function Bodega60({ activeTab, onTabChange }) {
+function Bodega60({ activeTab, onTabChange, envaseCells, setEnvaseCells, canEdit, focusLocation }) {
   const tabs = [
-    { id: "envases", label: "Envases" },
-    { id: "tc", label: "Etiquetas TC" },
-    { id: "adhesivas", label: "Etiquetas Adhesivas" },
-    { id: "film", label: "FILM" },
+    { id: "envases", label: "Envases" }, { id: "tc", label: "Etiquetas TC" },
+    { id: "adhesivas", label: "Etiquetas Adhesivas" }, { id: "film", label: "FILM" },
   ];
-  const panels = {
-    envases: ["EN", "Envases", "Ubicaciones y control de envases."],
-    tc: ["TC", "Etiquetas TC", "Área de almacenamiento de etiquetas TC."],
-    adhesivas: ["EA", "Etiquetas Adhesivas", "Área de almacenamiento de etiquetas adhesivas."],
-    film: ["FI", "FILM", "Área de almacenamiento y control de film."],
-  };
-  const panel = panels[activeTab];
+  const panels = { tc: ["TC", "Etiquetas TC", "Área de almacenamiento de etiquetas TC."], adhesivas: ["EA", "Etiquetas Adhesivas", "Área de almacenamiento de etiquetas adhesivas."], film: ["FI", "FILM", "Área de almacenamiento y control de film."] };
+  return <Section title="Bodega 60" description="Envases y materiales de empaque.">
+    <SubNav tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} />
+    {activeTab === "envases" ? <EnvasesLayout cells={envaseCells} setCells={setEnvaseCells} canEdit={canEdit} focusLocation={focusLocation} /> : <Placeholder code={panels[activeTab][0]} title={panels[activeTab][1]} text={panels[activeTab][2]} />}
+  </Section>;
+}
 
-  return (
-    <Section title="Bodega 60" description="Envases y materiales de empaque.">
-      <SubNav tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} />
-      <Placeholder code={panel[0]} title={panel[1]} text={panel[2]} />
-    </Section>
-  );
+function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
+  useEffect(() => {
+    if (focusLocation?.target !== "envases") return;
+    const timer = window.setTimeout(() => document.getElementById(`env-street-${focusLocation.unit}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 180);
+    return () => window.clearTimeout(timer);
+  }, [focusLocation]);
+
+  const zones = [
+    { id: "superior", title: "Sector superior", landmarks: ["ZONA ANILINAS", "FRACCIONAMIENTO", "OFICINA", "CALIDAD"] },
+    { id: "central", title: "Calles centrales · KANBAN", landmarks: ["KANBAN", "EXT."] },
+    { id: "patio", title: "Patio principal de envases", landmarks: [] },
+    { id: "derecho", title: "Sector derecho", landmarks: ["ETIQUETAS TC", "PAÑOL", "DRIVE IN"] },
+  ];
+
+  return <div style={styles.envLayout}>
+    <div style={styles.layoutToolbar}><div><h3 style={styles.areaTitle}>Plano de Envases</h3><p style={styles.areaDescription}>Pallets a piso con dos niveles; Calle ENV-01 con tres niveles y Calle ENV-13 con una posición superior bloqueada.</p></div><span style={styles.summaryBadge}>{ENVASE_STREETS.reduce((sum, street) => sum + street.capacity, 0)} posiciones</span></div>
+    <div style={styles.envCanvas}>{zones.map((zone) => <section key={zone.id} style={styles.envZone}>
+      <div style={styles.envZoneHeader}><strong>{zone.title}</strong><div style={styles.envLandmarks}>{zone.landmarks.map((item) => <span key={item}>{item}</span>)}</div></div>
+      <div style={styles.envStreetGrid}>{ENVASE_STREETS.filter((street) => street.zone === zone.id).map((street) => <EnvaseStreet key={street.id} street={street} cells={cells} setCells={setCells} canEdit={canEdit} focusLocation={focusLocation} />)}</div>
+    </section>)}</div>
+  </div>;
+}
+
+function EnvaseStreet({ street, cells, setCells, canEdit, focusLocation }) {
+  const positions = Array.from({ length: street.footprints }, (_, index) => index + 1);
+  const levels = Array.from({ length: street.levels }, (_, index) => street.levels - index);
+  const focused = focusLocation?.target === "envases" && focusLocation.unit === street.id;
+  return <article id={`env-street-${street.id}`} style={{ ...styles.envStreet, ...(focused ? styles.focusedUnit : {}) }}>
+    <div style={styles.envStreetHeader}><div><strong>CALLE ENV-{String(street.id).padStart(2,"0")}</strong><small>{street.footprints} huellas · {street.levels} niveles</small></div><b>{street.capacity} pos.</b></div>
+    <div style={styles.envReference}>Referencia Excel: {street.referenceSku}</div>
+    <div style={{ ...styles.envMatrix, gridTemplateColumns: `52px repeat(${street.footprints}, minmax(52px,1fr))` }}>
+      <div style={styles.envCorner}>NIVEL</div>{positions.map((position) => <div key={position} style={styles.envPositionHeader}>P{position}</div>)}
+      {levels.flatMap((level) => [<div key={`l-${level}`} style={styles.envLevelLabel}>N{level}</div>, ...positions.map((position) => {
+        const key = `${street.id}-${level}-${position}`;
+        const blocked = street.blocked?.includes(`${level}-${position}`);
+        return blocked ? <div key={key} style={styles.envBlocked}>NO DISP.</div> : <input key={key} value={cells[key] || ""} readOnly={!canEdit} data-storage-cell="true" onChange={(event) => canEdit && setCells((current) => ({ ...current, [key]: event.target.value }))} aria-label={`Envases calle ${street.id}, nivel ${level}, posición ${position}`} style={{ ...styles.envCell, ...(level === 3 ? styles.levelThree : level === 2 ? styles.levelTwo : styles.levelOne), ...(focusLocation?.target === "envases" && String(cells[key] || "").trim() === focusLocation.sku ? styles.focusedSkuCell : {}) }} />;
+      })])}
+    </div>
+  </article>;
 }
 
 function Placeholder({ code, title, text }) {
@@ -1088,6 +1168,7 @@ function summarizeLocations(locations) {
   const groups = [
     { target: "racks", singular: "Rack", plural: "Racks Selectivos" },
     { target: "drive", singular: "Calle", plural: "Drive In" },
+    { target: "envases", singular: "Calle", plural: "Envases" },
   ];
 
   return groups.flatMap((config) => {
@@ -1111,7 +1192,7 @@ function summarizeLocations(locations) {
   });
 }
 
-function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onNavigate, onAssign }) {
+function MaestroProductos({ rackCells, driveCells, envaseCells, canEdit, isAdmin, userId, onNavigate, onAssign }) {
   const emptyDraft = { sku: "", description: "", stock: "", units_per_pallet: "", observation: "" };
   const [products, setProducts] = useState([]);
   const [draft, setDraft] = useState(emptyDraft);
@@ -1142,6 +1223,13 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
     const [street, level, depth] = key.split("-");
     if (!locationsBySku[normalized]) locationsBySku[normalized] = [];
     locationsBySku[normalized].push({ label: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`, target: "drive", unit: Number(street), level: Number(level), slot: Number(depth) });
+  });
+  Object.entries(envaseCells).forEach(([key, sku]) => {
+    const normalized = String(sku || "").trim();
+    if (!normalized) return;
+    const [street, level, position] = key.split("-");
+    if (!locationsBySku[normalized]) locationsBySku[normalized] = [];
+    locationsBySku[normalized].push({ label: `ENV-C${String(street).padStart(2,"0")} · N${level} · P${position}`, target: "envases", unit: Number(street), level: Number(level), slot: Number(position) });
   });
 
   async function loadProducts() {
@@ -1546,6 +1634,22 @@ const styles = {
   actionSecondary: { padding: "6px 8px", border: `1px solid ${COLORS.border}`, borderRadius: 7, background: "#FFFFFF", color: COLORS.muted, fontSize: 10, fontWeight: 800, cursor: "pointer" },
   actionDanger: { padding: "6px 8px", border: "1px solid #FDA29B", borderRadius: 7, background: "#FFF1F1", color: "#B42318", fontSize: 10, fontWeight: 800, cursor: "pointer" },
   emptyTable: { padding: 28, textAlign: "center", color: COLORS.muted },
+  envLayout: { border: `1px solid ${COLORS.border}`, borderRadius: 16, overflow: "hidden", background: "#FFFFFF" },
+  envCanvas: { padding: 18, display: "grid", gap: 20, background: "#F3F6F8" },
+  envZone: { padding: 14, border: `1px solid ${COLORS.border}`, borderRadius: 14, background: "#FFFFFF" },
+  envZoneHeader: { marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", color: COLORS.turquoiseDark },
+  envLandmarks: { display: "flex", gap: 6, flexWrap: "wrap" },
+  envLandmarks: { display: "flex", gap: 6, flexWrap: "wrap" },
+  envStreetGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(480px,1fr))", gap: 14, overflowX: "auto" },
+  envStreet: { minWidth: 480, border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: 12, overflow: "hidden", background: "#FFFFFF" },
+  envStreetHeader: { padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", background: COLORS.turquoise, color: "#FFFFFF" },
+  envReference: { padding: "5px 10px", background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 9, fontWeight: 800 },
+  envMatrix: { display: "grid", overflowX: "auto" },
+  envCorner: { minHeight: 28, display: "grid", placeItems: "center", background: COLORS.turquoiseDark, color: "#FFFFFF", fontSize: 9, fontWeight: 900 },
+  envPositionHeader: { minHeight: 28, display: "grid", placeItems: "center", borderRight: `1px solid ${COLORS.turquoiseDark}`, borderBottom: `1px solid ${COLORS.turquoiseDark}`, background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 9, fontWeight: 900 },
+  envLevelLabel: { minHeight: 37, display: "grid", placeItems: "center", borderRight: `1px solid ${COLORS.turquoiseDark}`, borderBottom: `1px solid ${COLORS.turquoiseDark}`, background: "#F7FFFF", color: COLORS.turquoiseDark, fontWeight: 900 },
+  envCell: { width: "100%", minWidth: 0, height: 37, padding: "3px", border: 0, borderRight: `1px solid ${COLORS.turquoiseDark}`, borderBottom: `1px solid ${COLORS.turquoiseDark}`, outline: "none", boxSizing: "border-box", textAlign: "center", fontSize: 9, fontWeight: 700 },
+  envBlocked: { minHeight: 37, display: "grid", placeItems: "center", borderRight: `1px solid #98A2B3`, borderBottom: `1px solid #98A2B3`, background: "repeating-linear-gradient(135deg,#D0D5DD,#D0D5DD 5px,#EAECF0 5px,#EAECF0 10px)", color: "#475467", fontSize: 8, fontWeight: 900 },
   placeholder: { minHeight: 220, padding: 28, display: "flex", alignItems: "flex-start", gap: 16, border: `1px dashed ${COLORS.border}`, borderRadius: 14, background: "#FBFDFE" },
   placeholderCode: { width: 50, height: 50, flex: "0 0 50px", display: "grid", placeItems: "center", borderRadius: 14, background: COLORS.turquoise, color: "#fff", fontWeight: 850 },
   pending: { marginTop: 18, color: COLORS.turquoiseDark, fontSize: 13, fontWeight: 750 },
