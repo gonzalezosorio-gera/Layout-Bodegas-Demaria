@@ -379,7 +379,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V5.1.2 stock RPC</span>
+        <span style={styles.status}>V5.2 ubicaciones compactas</span>
       </div>
       {children}
     </section>
@@ -949,6 +949,51 @@ function LoadingPanel({ text }) {
   return <div style={styles.loadingPanel}><div style={styles.spinner} /><strong>{text}</strong></div>;
 }
 
+function compactNumberRanges(values) {
+  const numbers = [...new Set(values.map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
+  if (!numbers.length) return "";
+  const ranges = [];
+  let start = numbers[0];
+  let previous = numbers[0];
+  for (let index = 1; index <= numbers.length; index += 1) {
+    const current = numbers[index];
+    if (current === previous + 1) {
+      previous = current;
+      continue;
+    }
+    ranges.push(start === previous ? `${start}` : `${start}–${previous}`);
+    start = current;
+    previous = current;
+  }
+  return ranges.join(", ");
+}
+
+function summarizeLocations(locations) {
+  const groups = [
+    { target: "racks", singular: "Rack", plural: "Racks Selectivos" },
+    { target: "drive", singular: "Calle", plural: "Drive In" },
+  ];
+
+  return groups.flatMap((config) => {
+    const items = locations.filter((location) => location.target === config.target);
+    if (!items.length) return [];
+    const units = [...new Set(items.map((item) => item.unit))].sort((a, b) => a - b);
+    const unitText = compactNumberRanges(units);
+    const levels = [...new Set(items.map((item) => item.level))].sort((a, b) => b - a);
+    const details = config.target === "racks"
+      ? `${units.length === 1 ? config.singular : "Racks"} ${unitText}`
+      : `${units.length === 1 ? config.singular : "Calles"} ${unitText}`;
+    return [{
+      target: config.target,
+      title: config.plural,
+      details,
+      count: items.length,
+      levels: levels.map((level) => `N${level}`).join(", "),
+      first: items[0]?.label || "",
+    }];
+  });
+}
+
 function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onNavigate, onAssign }) {
   const emptyDraft = { sku: "", description: "", stock: "", units_per_pallet: "", observation: "" };
   const [products, setProducts] = useState([]);
@@ -972,14 +1017,14 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
     if (!normalized) return;
     const [rack, level, position] = key.split("-");
     if (!locationsBySku[normalized]) locationsBySku[normalized] = [];
-    locationsBySku[normalized].push({ label: `RACK ${rack} · N${level} · P${position}`, target: "racks" });
+    locationsBySku[normalized].push({ label: `RACK ${rack} · N${level} · P${position}`, target: "racks", unit: Number(rack), level: Number(level), slot: Number(position) });
   });
   Object.entries(driveCells).forEach(([key, sku]) => {
     const normalized = String(sku || "").trim();
     if (!normalized) return;
     const [street, level, depth] = key.split("-");
     if (!locationsBySku[normalized]) locationsBySku[normalized] = [];
-    locationsBySku[normalized].push({ label: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`, target: "drive" });
+    locationsBySku[normalized].push({ label: `CALLE ${String(street).padStart(2, "0")} · N${level} · PROF. ${depth}`, target: "drive", unit: Number(street), level: Number(level), slot: Number(depth) });
   });
 
   async function loadProducts() {
@@ -1196,7 +1241,7 @@ function MaestroProductos({ rackCells, driveCells, canEdit, isAdmin, userId, onN
           <td>{item.units > 0 ? item.pallets.toFixed(2) : "—"}</td>
           <td><strong>{item.assigned}</strong></td>
           <td><span style={{ ...styles.differenceBadge, ...(item.difference < -0.01 ? styles.diffNegative : item.difference > 0.01 ? styles.diffPositive : styles.diffBalanced) }}>{item.units > 0 ? signedNumber(item.difference) : "—"}</span></td>
-          <td><div style={styles.locationList}>{item.locations.length ? item.locations.map((location) => <button key={location.label} type="button" onClick={() => onNavigate(location.target)} style={styles.locationChip}>{location.label}</button>) : <span style={styles.mutedText}>Sin ubicación</span>}</div></td>
+          <td><div style={styles.locationList}>{item.locations.length ? summarizeLocations(item.locations).map((group) => <button key={group.target} type="button" onClick={() => onNavigate(group.target)} style={styles.locationSummaryCard}><span style={styles.locationSummaryTop}><strong>{group.title}</strong><b>{group.count} pos.</b></span><span>{group.details}</span><small>{group.levels}</small></button>) : <span style={styles.mutedText}>Sin ubicación</span>}</div></td>
           <td>{editing ? <input value={editDraft.observation} onChange={(e) => setEditDraft({ ...editDraft, observation: e.target.value })} style={styles.tableInput} /> : item.observation || "—"}</td>
           {canEdit && <td><div style={styles.actionGroup}>{editing ? <><button type="button" onClick={(event) => saveProduct(event, { ...editDraft, sku: item.sku }, false)} style={styles.actionPrimary}>Guardar</button><button type="button" onClick={() => setEditingSku("")} style={styles.actionSecondary}>Cancelar</button></> : <><button type="button" onClick={() => onAssign(item.sku)} style={styles.assignmentButton}>Asignar posiciones</button><button type="button" onClick={() => { setEditingSku(item.sku); setEditDraft({ ...item, stock: item.stock, units_per_pallet: item.units }); }} style={styles.actionPrimary}>Editar</button>{isAdmin && <button type="button" onClick={() => deleteProduct(item.sku)} style={styles.actionDanger}>Eliminar</button>}</>}</div></td>}
         </tr>;
@@ -1362,8 +1407,9 @@ const styles = {
   tableInputSmall: { width: 88, padding: "7px 8px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 7, boxSizing: "border-box" },
   differenceBadge: { padding: "5px 7px", borderRadius: 999, fontSize: 10, fontWeight: 850, whiteSpace: "nowrap" },
   diffNegative: { background: "#FEE4E2", color: "#B42318" }, diffPositive: { background: "#ECFDF3", color: "#027A48" }, diffBalanced: { background: "#E7F6EC", color: "#166534" },
-  locationList: { maxWidth: 290, display: "flex", gap: 4, flexWrap: "wrap" },
-  locationChip: { padding: "5px 7px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 999, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 9, fontWeight: 800, cursor: "pointer" },
+  locationList: { minWidth: 210, maxWidth: 280, display: "grid", gap: 6 },
+  locationSummaryCard: { width: "100%", padding: "8px 10px", display: "grid", gap: 3, border: `1px solid ${COLORS.turquoise}`, borderRadius: 10, background: "#E7FBFB", color: COLORS.turquoiseDark, textAlign: "left", fontSize: 10, cursor: "pointer" },
+  locationSummaryTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
   mutedText: { color: COLORS.muted, fontSize: 10 }, actionGroup: { display: "flex", gap: 5, flexWrap: "wrap" },
   actionPrimary: { padding: "6px 8px", border: 0, borderRadius: 7, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 10, fontWeight: 800, cursor: "pointer" },
   actionSecondary: { padding: "6px 8px", border: `1px solid ${COLORS.border}`, borderRadius: 7, background: "#FFFFFF", color: COLORS.muted, fontSize: 10, fontWeight: 800, cursor: "pointer" },
