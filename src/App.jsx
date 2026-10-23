@@ -563,7 +563,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V6.5 calles dinámicas</span>
+        <span style={styles.status}>V6.6.1 stock sincronizado</span>
       </div>
       {children}
     </section>
@@ -1063,6 +1063,8 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
   const [configSaving, setConfigSaving] = useState(false);
   const [showNewStreet, setShowNewStreet] = useState(false);
   const [newStreetForm, setNewStreetForm] = useState({ footprints: 10, levels: 2 });
+  const [editingDetailSku, setEditingDetailSku] = useState(false);
+  const [detailSkuDraft, setDetailSkuDraft] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1079,7 +1081,7 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
 
   const baseStreets = ENVASE_STREETS.map((street) => {
     const override = layoutConfig[street.id];
-    return override ? { ...street, footprints: override.footprints, levels: override.levels, blocked: override.blocked, isDeleted: override.isDeleted, capacity: override.footprints * override.levels - override.blocked.length } : street;
+    return override ? { ...street, sku: override.sku || street.sku, streetOrder: override.streetOrder || street.streetOrder, zone: override.zone || street.zone, footprints: override.footprints, levels: override.levels, blocked: override.blocked, isDeleted: override.isDeleted, capacity: override.footprints * override.levels - override.blocked.length } : street;
   }).filter((street) => !street.isDeleted);
   const customStreets = Object.entries(layoutConfig).filter(([id, item]) => item.isCustom && !item.isDeleted && !ENVASE_STREETS.some((street) => street.id === Number(id))).map(([id, item]) => ({ id: Number(id), sku: item.sku, streetOrder: item.streetOrder, zone: item.zone || "central", footprints: item.footprints, levels: item.levels, blocked: item.blocked || [], capacity: item.footprints * item.levels - (item.blocked || []).length, isCustom: true }));
   const effectiveStreets = [...baseStreets, ...customStreets].sort((a, b) => a.sku.localeCompare(b.sku) || a.streetOrder - b.streetOrder);
@@ -1123,6 +1125,30 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
     saveStreetConfig(street, { footprints: street.footprints - 1, blocked: (street.blocked || []).filter((code) => Number(code.split("-")[1]) < position) });
   }
 
+  async function renameDetailSku() {
+    const nextSku = detailSkuDraft.trim();
+    if (!canEdit || !/^\d{8}$/.test(nextSku) || nextSku === detailSku) { setEditingDetailSku(false); return; }
+    if (envSkuList.includes(nextSku) && nextSku !== detailSku && !window.confirm(`El SKU ${nextSku} ya existe en Envases. ¿Unificar las calles bajo ese código?`)) return;
+    const streets = effectiveStreets.filter((street) => street.sku === detailSku);
+    setConfigSaving(true);
+    for (const street of streets) await saveStreetConfig(street, { sku: nextSku });
+    setCells((current) => {
+      const next = { ...current };
+      Object.keys(next).forEach((key) => {
+        const streetId = Number(key.split("-")[0]);
+        if (streets.some((street) => street.id === streetId) && String(next[key] || "").trim() === detailSku) next[key] = nextSku;
+      });
+      return next;
+    });
+    setSelectedSku(nextSku);
+    setDetailSku(nextSku);
+    setDetailSkuDraft(nextSku);
+    setEditingDetailSku(false);
+    const productResult = await supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", nextSku).maybeSingle();
+    if (!productResult.error && productResult.data) setEnvProducts((current) => ({ ...current, [nextSku]: productResult.data }));
+    setConfigSaving(false);
+  }
+
   async function createStreet() {
     if (!canEdit || !detailSku) return;
     const skuStreets = effectiveStreets.filter((street) => street.sku === detailSku);
@@ -1153,10 +1179,14 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
   }
 
   useEffect(() => {
+    setDetailSkuDraft(detailSku || "");
+    setEditingDetailSku(false);
     if (!detailSku) { setDetailProduct(null); return; }
     let cancelled = false;
-    supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", detailSku).maybeSingle().then(({ data }) => {
-      if (!cancelled) setDetailProduct(data ?? null);
+    supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", detailSku.trim()).maybeSingle().then(({ data, error }) => {
+      if (cancelled) return;
+      setDetailProduct(data ?? null);
+      if (!error && data) setEnvProducts((current) => ({ ...current, [String(data.sku).trim()]: data }));
     });
     return () => { cancelled = true; };
   }, [detailSku]);
@@ -1172,7 +1202,7 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
     return () => window.clearTimeout(timer);
   }, [focusLocation]);
 
-  const envSkuList = [...new Set(effectiveStreets.map((street) => street.sku))];
+  const envSkuList = [...new Set(effectiveStreets.map((street) => street.sku))].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
   const visibleSkus = envSkuList.filter((sku) => sku.includes(envQuery.trim()));
 
   function skuMetrics(sku) {
@@ -1186,7 +1216,7 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
       const position = Number(positionPart);
       return level >= 1 && level <= street.levels && position >= 1 && position <= street.footprints && !(street.blocked || []).includes(`${level}-${position}`);
     }).length;
-    const product = envProducts[sku];
+    const product = sku === detailSku && detailProduct ? detailProduct : envProducts[sku];
     const stock = Number(product?.stock) || 0;
     const unitsPerPallet = Number(product?.units_per_pallet) || 0;
     const palletsEquivalent = unitsPerPallet > 0 ? stock / unitsPerPallet : 0;
@@ -1276,8 +1306,9 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
         <button type="button" onClick={() => setDetailSku("")} style={styles.actionSecondary}>← Mapa general</button>
         <div style={styles.envDetailIdentity}>
           <span style={styles.searchSummaryLabel}>Detalle de Envases</span>
-          <div style={styles.envDetailSkuRow}><button type="button" onClick={() => navigateDetail(-1)} style={styles.envNavArrow} aria-label="Código anterior">‹</button><h3 style={styles.envDetailTitle}>{detailSku}</h3><button type="button" onClick={() => navigateDetail(1)} style={styles.envNavArrow} aria-label="Código siguiente">›</button></div>
+          <div style={styles.envDetailSkuRow}><button type="button" onClick={() => navigateDetail(-1)} style={styles.envNavArrow} aria-label="Código anterior">‹</button>{editingDetailSku ? <input autoFocus value={detailSkuDraft} maxLength={8} onChange={(event) => setDetailSkuDraft(event.target.value.replace(/\D/g,""))} onKeyDown={(event) => { if (event.key === "Enter") renameDetailSku(); if (event.key === "Escape") setEditingDetailSku(false); }} onBlur={renameDetailSku} style={styles.envSkuEditInput} aria-label="Editar SKU" /> : <button type="button" onDoubleClick={() => canEdit && setEditingDetailSku(true)} onClick={() => canEdit && setEditingDetailSku(true)} style={styles.envSkuEditButton} title={canEdit ? "Editar SKU" : ""}><h3 style={styles.envDetailTitle}>{detailSku}</h3>{canEdit && <span>✎</span>}</button>}<button type="button" onClick={() => navigateDetail(1)} style={styles.envNavArrow} aria-label="Código siguiente">›</button></div>
           <p style={styles.envDetailDescription}>{detailProduct?.description || envProducts[detailSku]?.description || `Sin descripción para el SKU exacto ${detailSku} en el Maestro`}</p>
+          <div style={styles.envProductData}><span style={styles.envProductDataItem}><small>Stock</small><strong>{Number(detailProduct?.stock ?? envProducts[detailSku]?.stock) >= 0 ? `${Number((detailProduct?.stock ?? envProducts[detailSku]?.stock) || 0).toLocaleString("es-CL")} unidades` : "Sin stock registrado"}</strong></span><span style={styles.envProductDataItem}><small>Palletizado</small><strong>{Number(detailProduct?.units_per_pallet ?? envProducts[detailSku]?.units_per_pallet) > 0 ? `${Number(detailProduct?.units_per_pallet ?? envProducts[detailSku]?.units_per_pallet).toLocaleString("es-CL")} unidades por pallet` : "Sin cantidad por pallet registrada"}</strong></span></div>
         </div>
         <div style={styles.envDetailStats}><span style={styles.envDetailMetric}><small>Calles</small><b>{metrics.streets.length}</b></span><span style={styles.envDetailMetric}><small>Posiciones</small><b>{metrics.capacity}</b></span><span style={styles.envDetailMetric}><small>Pallets Eq.</small><b>{metrics.palletsEquivalent.toFixed(2)}</b></span><span style={styles.envDetailMetric}><small>Libres</small><b>{metrics.free}</b></span><span style={styles.envDetailMetric}><small>Utilización</small><b>{metrics.utilization.toFixed(1)}%</b></span></div>
       </div>
@@ -1969,6 +2000,10 @@ const styles = {
   envDetailSkuRow: { display: "flex", alignItems: "center", gap: 8 },
   envNavArrow: { width: 30, height: 30, display: "grid", placeItems: "center", border: `1px solid ${COLORS.turquoise}`, borderRadius: 9, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 22, lineHeight: 1, cursor: "pointer" },
   envDetailTitle: { margin: 0, fontSize: 24, color: COLORS.text },
+  envSkuEditButton: { padding: 0, display: "flex", alignItems: "center", gap: 7, border: 0, background: "transparent", color: COLORS.text, cursor: "pointer" },
+  envSkuEditInput: { width: 150, padding: "5px 8px", border: `2px solid ${COLORS.turquoise}`, borderRadius: 9, color: COLORS.text, fontSize: 24, fontWeight: 900, outline: "none" },
+  envProductData: { display: "flex", alignItems: "stretch", gap: 8, flexWrap: "wrap" },
+  envProductDataItem: { display: "grid", gap: 2 },
   envDetailDescription: { margin: "4px 0 0", color: COLORS.muted, fontSize: 12, fontWeight: 600 },
   envDetailStats: { display: "grid", gridTemplateColumns: "repeat(5,minmax(70px,auto))", gap: 7 },
   envSelectionToolbar: { padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", borderBottom: `1px solid ${COLORS.border}`, background: "#F7FFFF", fontSize: 11 },
