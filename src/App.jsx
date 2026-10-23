@@ -395,7 +395,7 @@ export default function App() {
                       <SearchMetric label="Stock" value={formatNumber(searchStock)} />
                       <SearchMetric label="Cant./Pallet" value={formatNumber(searchUnitsPerPallet)} />
                       <SearchMetric label="Pallets Eq." value={searchUnitsPerPallet > 0 ? searchPallets.toFixed(2) : "—"} />
-                      <SearchMetric label="Utilización" value={searchAssigned > 0 && searchUnitsPerPallet > 0 ? `${searchUtilization.toFixed(1)}%` : "—"} alert={searchUtilization > 100} />
+                      <SearchMetric label="Utilización" value={searchAssigned > 0 && searchUnitsPerPallet > 0 ? `${searchUtilization.toFixed(1)}%${searchUtilization > 100 ? "  !" : ""}` : "—"} alert={searchUtilization > 100} />
                       <SearchMetric label="Posiciones libres" value={searchUnitsPerPallet > 0 ? searchFreePositions : "—"} />
                     </div>
                     {searchProduct.observation && <div style={styles.skuObservation}>{searchProduct.observation}</div>}
@@ -456,6 +456,10 @@ export default function App() {
 
 function SearchMetric({ label, value, alert }) {
   return <div style={{ ...styles.searchMetric, ...(alert ? styles.searchMetricAlert : {}) }}><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function OverstockMark({ compact = false }) {
+  return <span style={compact ? styles.overstockIconCompact : styles.overstockMark} title="Sobrestock: utilización superior al 100%">!{compact ? "" : " Sobrestock"}</span>;
 }
 
 function LoadingScreen({ text }) {
@@ -563,7 +567,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V6.6.1 stock sincronizado</span>
+        <span style={styles.status}>V6.7 mapa parametrizado y sobrestock</span>
       </div>
       {children}
     </section>
@@ -1310,7 +1314,7 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
           <p style={styles.envDetailDescription}>{detailProduct?.description || envProducts[detailSku]?.description || `Sin descripción para el SKU exacto ${detailSku} en el Maestro`}</p>
           <div style={styles.envProductData}><span style={styles.envProductDataItem}><small>Stock</small><strong>{Number(detailProduct?.stock ?? envProducts[detailSku]?.stock) >= 0 ? `${Number((detailProduct?.stock ?? envProducts[detailSku]?.stock) || 0).toLocaleString("es-CL")} unidades` : "Sin stock registrado"}</strong></span><span style={styles.envProductDataItem}><small>Palletizado</small><strong>{Number(detailProduct?.units_per_pallet ?? envProducts[detailSku]?.units_per_pallet) > 0 ? `${Number(detailProduct?.units_per_pallet ?? envProducts[detailSku]?.units_per_pallet).toLocaleString("es-CL")} unidades por pallet` : "Sin cantidad por pallet registrada"}</strong></span></div>
         </div>
-        <div style={styles.envDetailStats}><span style={styles.envDetailMetric}><small>Calles</small><b>{metrics.streets.length}</b></span><span style={styles.envDetailMetric}><small>Posiciones</small><b>{metrics.capacity}</b></span><span style={styles.envDetailMetric}><small>Pallets Eq.</small><b>{metrics.palletsEquivalent.toFixed(2)}</b></span><span style={styles.envDetailMetric}><small>Libres</small><b>{metrics.free}</b></span><span style={styles.envDetailMetric}><small>Utilización</small><b>{metrics.utilization.toFixed(1)}%</b></span></div>
+        <div style={styles.envDetailStats}><span style={styles.envDetailMetric}><small>Calles</small><b>{metrics.streets.length}</b></span><span style={styles.envDetailMetric}><small>Posiciones</small><b>{metrics.capacity}</b></span><span style={styles.envDetailMetric}><small>Pallets Eq.</small><b>{metrics.palletsEquivalent.toFixed(2)}</b></span><span style={styles.envDetailMetric}><small>Libres</small><b>{metrics.free}</b></span><span style={{ ...styles.envDetailMetric, ...(metrics.utilization > 100 ? styles.overstockPanel : {}) }}><small>Utilización</small><b>{metrics.utilization.toFixed(1)}% {metrics.utilization > 100 && <OverstockMark compact />}</b></span></div>
       </div>
       <div style={styles.envSelectionToolbar} data-env-toolbar="true"><div><strong>{envSelection ? `${selectedEnvaseKeys().length} posiciones seleccionadas` : designMode ? "Modo diseño: haz clic en un cuadro para activarlo o desactivarlo" : "Selecciona una o varias posiciones"}</strong><small style={styles.envSaveState}>{configSaving ? "Guardando estructura..." : designMode ? "Los cuadros activos se contabilizan aunque estén vacíos" : ""}</small></div><div style={styles.actionGroup}><button type="button" onClick={() => setShowNewStreet((value) => !value)} disabled={!canEdit} style={styles.actionSecondary}>+ Nueva calle</button><button type="button" onClick={() => { setDesignMode((value) => !value); setEnvSelection(null); }} disabled={!canEdit} style={designMode ? styles.actionPrimary : styles.actionSecondary}>{designMode ? "Finalizar diseño" : "Diseñar posiciones"}</button><button type="button" onClick={copyEnvaseSelection} disabled={!envSelection} style={styles.actionSecondary}>Copiar</button><button type="button" onClick={clearEnvaseSelection} disabled={!envSelection || !canEdit} style={styles.actionDanger}>Suprimir</button><button type="button" onClick={() => setEnvSelection(null)} disabled={!envSelection} style={styles.actionSecondary}>Deseleccionar</button></div></div>
       {showNewStreet && <div style={styles.envNewStreetForm} data-env-toolbar="true"><strong>Nueva calle para {detailSku}</strong><label>Huellas<input type="number" min="1" max="40" value={newStreetForm.footprints} onChange={(event) => setNewStreetForm((current) => ({ ...current, footprints: event.target.value }))} /></label><label>Niveles<select value={newStreetForm.levels} onChange={(event) => setNewStreetForm((current) => ({ ...current, levels: event.target.value }))}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label><button type="button" onClick={createStreet} style={styles.actionPrimary}>Crear calle</button><button type="button" onClick={() => setShowNewStreet(false)} style={styles.actionSecondary}>Cancelar</button></div>}
@@ -1325,9 +1329,9 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
       <div style={styles.envSkuList}>{visibleSkus.map((sku) => {
         const metrics = skuMetrics(sku);
         const active = selectedSku === sku;
-        return <button key={sku} type="button" data-env-select="true" onClick={() => chooseSku(sku)} onDoubleClick={() => setDetailSku(sku)} style={{ ...styles.envSkuItem, ...(active ? styles.envSkuItemActive : {}) }}>
+        return <button key={sku} type="button" data-env-select="true" onClick={() => chooseSku(sku)} onDoubleClick={() => setDetailSku(sku)} style={{ ...styles.envSkuItem, ...(active ? styles.envSkuItemActive : {}), ...(metrics.utilization > 100 ? styles.overstockPanel : {}) }}>
           <span style={styles.envSkuItemInfo}><strong>{sku}</strong><small>{metrics.streets.length} {metrics.streets.length === 1 ? "calle" : "calles"} · {metrics.capacity} posiciones</small></span>
-          <span style={styles.envSkuPercent}>{metrics.utilization.toFixed(1)}%</span>
+          <span style={{ ...styles.envSkuPercent, ...(metrics.utilization > 100 ? styles.overstockPercent : {}) }}>{metrics.utilization > 100 && <OverstockMark compact />}{metrics.utilization.toFixed(1)}%</span>
         </button>;
       })}</div>
       <div style={styles.envSidebarHint}>Un clic resalta el mapa. Doble clic abre las posiciones y sus niveles.</div>
@@ -1342,14 +1346,18 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
         <div style={{ ...styles.envFixedArea, left: "0.5%", top: "23.5%", width: "27%", height: "31%" }}>KANBAN</div>
         <div style={{ ...styles.envFixedArea, left: "38.5%", top: "1%", width: "5%", height: "4%", background: "#000", color: "#FFF" }}>EXT.</div>
         <div style={{ ...styles.envFixedArea, left: "44%", top: "1%", width: "8%", height: "4%", background: "#FFF200" }}>CALIDAD</div>
-        <div style={{ ...styles.envFixedArea, left: "74%", top: "68%", width: "26%", height: "6%", background: "#C5CAE9", color: "#5E35B1" }}>Zona de etiquetas TC</div>
+        <div style={{ ...styles.envFixedArea, left: "74%", top: "67%", width: "26%", height: "7%", background: "#000000", color: "#FFFFFF", borderRadius: 0 }}>Zona de etiquetas TC</div>
         <div style={{ ...styles.envFixedArea, left: "0.5%", top: "88%", width: "74%", height: "11%", background: "#000", color: "#FFF", fontSize: 16 }}>ZONA DE RACKS DRIVE IN</div>
 
         {ENV_MAP_BLOCKS.map((block) => {
-          const selected = selectedSku === block.sku;
+          const originalIds = ENVASE_STREETS.filter((street) => street.sku === block.sku).map((street) => street.id);
+          const mappedSku = effectiveStreets.find((street) => originalIds.includes(street.id))?.sku || block.sku;
+          const metrics = skuMetrics(mappedSku);
+          const selected = selectedSku === mappedSku;
           const faded = selectedSku && !selected;
-          return <button key={block.sku} type="button" data-env-select="true" onClick={() => chooseSku(block.sku)} onDoubleClick={() => setDetailSku(block.sku)} style={{ ...styles.envSkuMapBlock, left: block.x, top: block.y, width: block.w, height: block.h, background: "linear-gradient(145deg,#E7FBFB,#C8F2F2)", color: COLORS.text, ...(selected ? styles.envMapStreetSelected : {}), ...(faded ? styles.envMapStreetFaded : {}) }}>
-            <strong>{block.sku}</strong><span>{skuMetrics(block.sku).capacity} posiciones</span>
+          const overstock = metrics.utilization > 100;
+          return <button key={block.sku} type="button" data-env-select="true" onClick={() => chooseSku(mappedSku)} onDoubleClick={() => setDetailSku(mappedSku)} style={{ ...styles.envSkuMapBlock, left: block.x, top: block.y, width: block.w, height: block.h, background: overstock ? "#F04438" : "linear-gradient(145deg,#E7FBFB,#C8F2F2)", color: overstock ? "#FFFFFF" : COLORS.text, borderColor: overstock ? "#B42318" : COLORS.turquoiseDark, ...(selected ? styles.envMapStreetSelected : {}), ...(faded ? styles.envMapStreetFaded : {}) }}>
+            {overstock && <OverstockMark compact />}<strong>{mappedSku}</strong><span>{metrics.capacity} posiciones</span>
           </button>;
         })}
       </div>
@@ -1782,7 +1790,7 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, canEdit, isAdmin
           <td>{editing ? <input type="number" min="0" step="any" value={editDraft.units_per_pallet} onChange={(e) => setEditDraft({ ...editDraft, units_per_pallet: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.units)}</td>
           <td>{item.units > 0 ? item.pallets.toFixed(2) : "—"}</td>
           <td><strong>{item.assigned}</strong></td>
-          <td><span style={{ ...styles.differenceBadge, ...(item.difference < -0.01 ? styles.diffNegative : item.difference > 0.01 ? styles.diffPositive : styles.diffBalanced) }}>{item.units > 0 ? signedNumber(item.difference) : "—"}</span></td>
+          <td><span style={{ ...styles.differenceBadge, ...(item.difference < -0.01 ? styles.diffNegative : item.difference > 0.01 ? styles.diffPositive : styles.diffBalanced) }}>{item.units > 0 ? `${item.difference < -0.01 ? "! " : ""}${signedNumber(item.difference)}` : "—"}</span></td>
           <td><div style={styles.locationList}>{item.locations.length ? summarizeLocations(item.locations).map((group) => <button key={group.target} type="button" onClick={() => onNavigate({ target: group.target, unit: group.unit, sku: item.sku })} style={styles.locationSummaryCard}><span style={styles.locationSummaryTop}><strong>{group.title}</strong><b>{group.count} pos.</b></span><span>{group.details}</span><small>{group.levels}</small></button>) : <span style={styles.mutedText}>Sin ubicación</span>}</div></td>
           <td>{editing ? <input value={editDraft.observation} onChange={(e) => setEditDraft({ ...editDraft, observation: e.target.value })} style={styles.tableInput} /> : item.observation || "—"}</td>
           {canEdit && <td><div style={styles.actionGroup}>{editing ? <><button type="button" onClick={(event) => saveProduct(event, { ...editDraft, sku: item.sku }, false)} style={styles.actionPrimary}>Guardar</button><button type="button" onClick={() => setEditingSku("")} style={styles.actionSecondary}>Cancelar</button></> : <><button type="button" onClick={() => onAssign(item.sku)} style={styles.assignmentButton}>Asignar posiciones</button><button type="button" onClick={() => { setEditingSku(item.sku); setEditDraft({ ...item, stock: item.stock, units_per_pallet: item.units }); }} style={styles.actionPrimary}>Editar</button>{isAdmin && <button type="button" onClick={() => deleteProduct(item.sku)} style={styles.actionDanger}>Eliminar</button>}</>}</div></td>}
@@ -1976,6 +1984,10 @@ const styles = {
   envSidebarHeader: { padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#F7FFFF" },
   envSkuSearch: { margin: "0 12px 10px", padding: "9px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 9, outline: "none" },
   envSkuList: { padding: "0 8px 8px", display: "grid", gap: 5, overflowY: "auto" },
+  overstockPanel: { background: "#FFF1F1", borderColor: "#F04438", color: "#B42318", boxShadow: "inset 4px 0 0 #F04438" },
+  overstockPercent: { background: "#F04438", color: "#FFFFFF" },
+  overstockMark: { display: "inline-flex", alignItems: "center", gap: 4, color: "#B42318", fontSize: 10, fontWeight: 900 },
+  overstockIconCompact: { width: 16, height: 16, display: "inline-grid", placeItems: "center", marginRight: 4, borderRadius: "50%", background: "#B42318", color: "#FFFFFF", fontSize: 11, fontWeight: 900, lineHeight: 1 },
   envSkuItem: { padding: "9px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#FFFFFF", color: COLORS.text, textAlign: "left", cursor: "pointer" },
   envSkuItemInfo: { minWidth: 0, display: "grid", gap: 4 },
   envSkuPercent: { flex: "0 0 auto", padding: "5px 7px", borderRadius: 999, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 10, fontWeight: 800 },
