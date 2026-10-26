@@ -458,7 +458,7 @@ function SearchMetric({ label, value, alert }) {
   return <div style={{ ...styles.searchMetric, ...(alert ? styles.searchMetricAlert : {}) }}><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function CellSkuDetail({ sku, cells, areaLabel }) {
+function CellSkuDetail({ sku, cells, areaLabel, panelPosition }) {
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(false);
   const normalizedSku = String(sku || "").trim();
@@ -479,7 +479,7 @@ function CellSkuDetail({ sku, cells, areaLabel }) {
   const utilization = assigned > 0 && unitsPerPallet > 0 ? palletsEquivalent / assigned * 100 : 0;
   const free = unitsPerPallet > 0 ? Math.max(assigned - Math.ceil(palletsEquivalent), 0) : null;
   const overstock = utilization > 100;
-  return <aside data-cell-detail="true" style={{ ...styles.cellDetailPanel, ...(overstock ? styles.cellDetailPanelOverstock : {}) }}>
+  return <aside data-cell-detail="true" style={{ ...styles.cellDetailPanel, ...panelPosition, ...(overstock ? styles.cellDetailPanelOverstock : {}) }}>
     <div style={styles.cellDetailHeading}><div><span style={styles.searchSummaryLabel}>Detalle de la celda</span><strong style={styles.cellDetailSku}>{normalizedSku}</strong></div>{overstock && <OverstockMark />}</div>
     <span style={styles.cellDetailArea}>{areaLabel}</span>
     {loading ? <div style={styles.cellDetailLoading}>Consultando Maestro…</div> : <>
@@ -604,7 +604,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V6.8 detalle por celda</span>
+        <span style={styles.status}>V6.9 panel contextual por celda</span>
       </div>
       {children}
     </section>
@@ -645,6 +645,19 @@ function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment, 
   const [activeCell, setActiveCell] = useState("");
   const [selection, setSelection] = useState(null);
   const [dragging, setDragging] = useState(false);
+  const [detailPanelPosition, setDetailPanelPosition] = useState(null);
+
+  function positionCellDetail(element) {
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    const panelWidth = 330;
+    const panelHeight = 330;
+    const gap = 18;
+    const placeLeft = rect.left + rect.width / 2 > window.innerWidth / 2;
+    const left = placeLeft ? Math.max(12, rect.left - panelWidth - gap) : Math.min(window.innerWidth - panelWidth - 12, rect.right + gap);
+    const top = Math.max(12, Math.min(rect.top, window.innerHeight - panelHeight - 12));
+    setDetailPanelPosition({ left, top, width: panelWidth });
+  }
   const streets = Array.from({ length: 23 }, (_, index) => index + 1);
   const levels = [3, 2, 1];
   const depths = [1, 2, 3, 4, 5];
@@ -768,6 +781,7 @@ function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment, 
         if (!event.target.closest?.('[data-storage-cell="true"]') && !event.target.closest?.('[data-cell-detail="true"]') && !event.target.closest?.('button')) {
           setActiveCell("");
           setSelection(null);
+          setDetailPanelPosition(null);
         }
       }}
     >
@@ -784,7 +798,7 @@ function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment, 
         </div>
       </div>
 
-      <div style={activeCell && String(cells[activeCell] || "").trim() ? styles.storageWithDetail : undefined}>
+      <div style={styles.storageDetailAnchor}>
       <div style={styles.driveGrid}>
         {streets.map((street) => (
           <DriveStreet
@@ -800,16 +814,17 @@ function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment, 
             setDragging={setDragging}
             canEdit={canEdit}
             focusLocation={focusLocation}
+            positionCellDetail={positionCellDetail}
           />
         ))}
       </div>
-      {activeCell && String(cells[activeCell] || "").trim() && <CellSkuDetail sku={cells[activeCell]} cells={cells} areaLabel="Racks Drive In" />}
+      {detailPanelPosition && activeCell && String(cells[activeCell] || "").trim() && <CellSkuDetail sku={cells[activeCell]} cells={cells} areaLabel="Racks Drive In" panelPosition={detailPanelPosition} />}
       </div>
     </div>
   );
 }
 
-function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit, focusLocation }) {
+function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit, focusLocation, positionCellDetail }) {
   const depths = [1, 2, 3, 4, 5];
   const levels = [3, 2, 1];
 
@@ -832,6 +847,7 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
                   readOnly={!canEdit}
                   onMouseDown={(event) => {
                     event.stopPropagation();
+                    positionCellDetail(event.currentTarget);
                     setActiveCell(key);
                     setSelection({ group: street, anchor: { row, col }, focus: { row, col } });
                     if (canEdit) { setDragging(true); event.currentTarget.focus(); }
@@ -868,6 +884,19 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
   const [activeCell, setActiveCell] = useState("");
   const [selection, setSelection] = useState(null);
   const [dragging, setDragging] = useState(false);
+  const [detailPanelPosition, setDetailPanelPosition] = useState(null);
+
+  function positionCellDetail(element) {
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    const panelWidth = 330;
+    const panelHeight = 330;
+    const gap = 18;
+    const placeLeft = rect.left + rect.width / 2 > window.innerWidth / 2;
+    const left = placeLeft ? Math.max(12, rect.left - panelWidth - gap) : Math.min(window.innerWidth - panelWidth - 12, rect.right + gap);
+    const top = Math.max(12, Math.min(rect.top, window.innerHeight - panelHeight - 12));
+    setDetailPanelPosition({ left, top, width: panelWidth });
+  }
   const levels = [3, 2, 1];
 
   useEffect(() => {
@@ -993,6 +1022,7 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
         if (!event.target.closest?.('[data-storage-cell="true"]') && !event.target.closest?.('[data-cell-detail="true"]') && !event.target.closest?.('button')) {
           setActiveCell("");
           setSelection(null);
+          setDetailPanelPosition(null);
         }
       }}
     >
@@ -1009,7 +1039,7 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
         </div>
       </div>
 
-      <div style={activeCell && String(cells[activeCell] || "").trim() ? styles.storageWithDetail : undefined}>
+      <div style={styles.storageDetailAnchor}>
       <div style={styles.canvasScroller}>
         <div style={styles.warehouseCanvas}>
           {RACKS.map((rack) => (
@@ -1026,18 +1056,19 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
                 setDragging={setDragging}
                 canEdit={canEdit}
                 focusLocation={focusLocation}
+                positionCellDetail={positionCellDetail}
               />
             </div>
           ))}
         </div>
       </div>
-      {activeCell && String(cells[activeCell] || "").trim() && <CellSkuDetail sku={cells[activeCell]} cells={cells} areaLabel="Racks Selectivos" />}
+      {detailPanelPosition && activeCell && String(cells[activeCell] || "").trim() && <CellSkuDetail sku={cells[activeCell]} cells={cells} areaLabel="Racks Selectivos" panelPosition={detailPanelPosition} />}
       </div>
     </div>
   );
 }
 
-function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit, focusLocation }) {
+function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit, focusLocation, positionCellDetail }) {
   const positions = Array.from({ length: rack.positions }, (_, index) => index + 1);
   const levels = [3, 2, 1];
 
@@ -1057,6 +1088,7 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, sel
                 readOnly={!canEdit}
                 onMouseDown={(event) => {
                   event.stopPropagation();
+                  positionCellDetail(event.currentTarget);
                   setActiveCell(key);
                   setSelection({ group: rack.number, anchor: { row, col }, focus: { row, col } });
                   if (canEdit) { setDragging(true); event.currentTarget.focus(); }
@@ -1959,17 +1991,17 @@ const styles = {
   subNav: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${COLORS.border}` },
   subTab: { padding: "9px 14px", border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#fff", color: COLORS.muted, fontSize: 13, fontWeight: 750, cursor: "pointer" },
   subTabActive: { borderColor: COLORS.turquoise, background: "#E7FBFB", color: COLORS.turquoiseDark },
-  storageWithDetail: { display: "grid", gridTemplateColumns: "minmax(0,1fr) 270px", alignItems: "start", gap: 14, paddingRight: 14 },
-  cellDetailPanel: { position: "sticky", top: 12, marginTop: 18, padding: 15, display: "grid", gap: 10, border: `1px solid ${COLORS.turquoise}`, borderRadius: 14, background: "#FFFFFF", boxShadow: "0 12px 28px rgba(16,24,40,.10)" },
+  storageDetailAnchor: { position: "relative" },
+  cellDetailPanel: { position: "fixed", zIndex: 120, padding: 20, display: "grid", gap: 14, border: `2px solid ${COLORS.turquoise}`, borderRadius: 16, background: "#FFFFFF", boxShadow: "0 18px 46px rgba(16,24,40,.22)" },
   cellDetailPanelOverstock: { borderColor: "#F04438", background: "#FFF7F7", boxShadow: "inset 4px 0 0 #F04438, 0 12px 28px rgba(180,35,24,.12)" },
   cellDetailHeading: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
-  cellDetailSku: { display: "block", color: COLORS.text, fontSize: 19 },
-  cellDetailArea: { padding: "5px 8px", width: "fit-content", borderRadius: 999, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 9, fontWeight: 850 },
-  cellDetailDescription: { margin: 0, minHeight: 34, color: COLORS.muted, fontSize: 11, lineHeight: 1.45 },
+  cellDetailSku: { display: "block", color: COLORS.text, fontSize: 25, fontWeight: 900 },
+  cellDetailArea: { padding: "5px 8px", width: "fit-content", borderRadius: 999, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 850 },
+  cellDetailDescription: { margin: 0, minHeight: 34, color: COLORS.muted, fontSize: 15, lineHeight: 1.5 },
   cellDetailMetrics: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 7 },
-  cellDetailMetric: { padding: "8px 7px", display: "grid", gap: 3, border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#F8FAFC", fontSize: 10 },
-  cellDetailLoading: { padding: 16, color: COLORS.muted, textAlign: "center", fontSize: 11 },
-  cellDetailMissing: { padding: 8, borderRadius: 8, background: "#FFF1F1", color: "#B42318", fontSize: 9 },
+  cellDetailMetric: { padding: "8px 7px", display: "grid", gap: 3, border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#F8FAFC", fontSize: 14 },
+  cellDetailLoading: { padding: 18, color: COLORS.muted, textAlign: "center", fontSize: 15 },
+  cellDetailMissing: { padding: 8, borderRadius: 8, background: "#FFF1F1", color: "#B42318", fontSize: 13 },
   cellDetailDangerText: { color: "#B42318" },
   fullLayoutArea: { border: `1px solid ${COLORS.border}`, borderRadius: 16, background: "#fff", overflow: "hidden" },
   layoutToolbar: { padding: 18, display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", background: "#FBFDFE", borderBottom: `1px solid ${COLORS.border}` },
