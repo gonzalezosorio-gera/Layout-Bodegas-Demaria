@@ -604,7 +604,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V6.9 panel contextual por celda</span>
+        <span style={styles.status}>V6.9.1 cierre exterior del panel</span>
       </div>
       {children}
     </section>
@@ -658,6 +658,17 @@ function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment, 
     const top = Math.max(12, Math.min(rect.top, window.innerHeight - panelHeight - 12));
     setDetailPanelPosition({ left, top, width: panelWidth });
   }
+
+  useEffect(() => {
+    function closeDetailOnOutsideClick(event) {
+      if (event.target.closest?.('[data-storage-cell="true"]') || event.target.closest?.('[data-cell-detail="true"]')) return;
+      setActiveCell("");
+      setSelection(null);
+      setDetailPanelPosition(null);
+    }
+    document.addEventListener("mousedown", closeDetailOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeDetailOnOutsideClick);
+  }, []);
   const streets = Array.from({ length: 23 }, (_, index) => index + 1);
   const levels = [3, 2, 1];
   const depths = [1, 2, 3, 4, 5];
@@ -778,7 +789,7 @@ function DriveIn({ cells, setCells, canEdit, assignmentSku, onCancelAssignment, 
         }
       }}
       onMouseDown={(event) => {
-        if (!event.target.closest?.('[data-storage-cell="true"]') && !event.target.closest?.('[data-cell-detail="true"]') && !event.target.closest?.('button')) {
+        if (!event.target.closest?.('[data-storage-cell="true"]') && !event.target.closest?.('[data-cell-detail="true"]') ) {
           setActiveCell("");
           setSelection(null);
           setDetailPanelPosition(null);
@@ -897,6 +908,17 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
     const top = Math.max(12, Math.min(rect.top, window.innerHeight - panelHeight - 12));
     setDetailPanelPosition({ left, top, width: panelWidth });
   }
+
+  useEffect(() => {
+    function closeDetailOnOutsideClick(event) {
+      if (event.target.closest?.('[data-storage-cell="true"]') || event.target.closest?.('[data-cell-detail="true"]')) return;
+      setActiveCell("");
+      setSelection(null);
+      setDetailPanelPosition(null);
+    }
+    document.addEventListener("mousedown", closeDetailOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeDetailOnOutsideClick);
+  }, []);
   const levels = [3, 2, 1];
 
   useEffect(() => {
@@ -1019,7 +1041,7 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
         }
       }}
       onMouseDown={(event) => {
-        if (!event.target.closest?.('[data-storage-cell="true"]') && !event.target.closest?.('[data-cell-detail="true"]') && !event.target.closest?.('button')) {
+        if (!event.target.closest?.('[data-storage-cell="true"]') && !event.target.closest?.('[data-cell-detail="true"]') ) {
           setActiveCell("");
           setSelection(null);
           setDetailPanelPosition(null);
