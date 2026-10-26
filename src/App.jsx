@@ -567,7 +567,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V6.7 mapa parametrizado y sobrestock</span>
+        <span style={styles.status}>V6.7.1 Drive In corregido</span>
       </div>
       {children}
     </section>
@@ -807,7 +807,7 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
                     ...(level === 2 ? styles.levelTwo : {}),
                     ...(level === 1 ? styles.levelOne : {}),
                     ...(activeCell === key ? styles.driveCellActive : {}),
-                    ...(selected ? styles.multiSelectedCell : {}), ...(designMode ? styles.envDesignActive : {}),
+                    ...(selected ? styles.multiSelectedCell : {}),
                     ...(focusLocation?.target === "drive" && String(cells[key] || "").trim() === focusLocation.sku ? styles.focusedSkuCell : {}),
                   }}
                 />
