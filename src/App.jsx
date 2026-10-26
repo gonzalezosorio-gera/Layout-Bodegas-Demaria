@@ -344,7 +344,8 @@ export default function App() {
 
   const displayName = profile.display_name || session.user.email || "Usuario";
   const initials = displayName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-  const roleLabel = profile.role === "admin" ? "Administrador" : profile.role === "editor" ? "Editor" : "Viewer";
+  const roleLabel = profile.role === "admin" ? "Administrador" : profile.role === "editor" ? "Editor" : profile.role === "operator" ? "Operador" : "Viewer";
+  if (profile.role === "operator") return <OperatorMobile profile={profile} rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} onSignOut={() => supabase.auth.signOut()} />;
 
   return (
     <div
@@ -452,6 +453,71 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut }) {
+  const [sku, setSku] = useState("");
+  const [product, setProduct] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const normalizedSku = sku.trim();
+
+  const locations = normalizedSku ? [
+    ...Object.entries(rackCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [rack, level, position] = key.split("-"); return { area: "Racks Selectivos", group: `Rack ${rack}`, detail: `P${position} · Nivel ${level}` }; }),
+    ...Object.entries(driveCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [street, level, depth] = key.split("-"); return { area: "Drive In", group: `Calle ${String(street).padStart(2,"0")}`, detail: `P${depth} · Nivel ${level}` }; }),
+    ...Object.entries(envaseCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [street, level, position] = key.split("-"); return { area: "Envases", group: `Calle ${String(street).padStart(2,"0")}`, detail: `P${position} · Nivel ${level}` }; }),
+  ] : [];
+  const assigned = locations.length;
+  const stock = Number(product?.stock) || 0;
+  const palletizing = Number(product?.units_per_pallet) || 0;
+  const pallets = palletizing > 0 ? stock / palletizing : 0;
+  const free = palletizing > 0 ? Math.max(assigned - Math.ceil(pallets), 0) : null;
+  const overstock = assigned > 0 && palletizing > 0 && pallets > assigned;
+  const grouped = Object.values(locations.reduce((acc, item) => {
+    const key = `${item.area}|${item.group}`;
+    if (!acc[key]) acc[key] = { ...item, details: [] };
+    acc[key].details.push(item.detail);
+    return acc;
+  }, {}));
+
+  async function searchOperatorSku(event) {
+    event?.preventDefault();
+    if (!/^\d{8}$/.test(normalizedSku)) { setProduct(null); setSearched(true); return; }
+    setLoading(true); setSearched(true);
+    const { data } = await supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", normalizedSku).maybeSingle();
+    setProduct(data ?? null); setLoading(false);
+  }
+
+  return <div style={styles.operatorShell}>
+    <header style={styles.operatorHeader}>
+      <div><span style={styles.operatorBrand}>DEMΛRIA</span><small>Consulta de bodega</small></div>
+      <button type="button" onClick={onSignOut} style={styles.operatorLogout}>Salir</button>
+    </header>
+    <main style={styles.operatorMain}>
+      <div style={styles.operatorWelcome}><span>Perfil Operador</span><strong>{profile.display_name || "Operador"}</strong><p>Ingresa un SKU para consultar stock y ubicación.</p></div>
+      <form onSubmit={searchOperatorSku} style={styles.operatorSearchForm}>
+        <label htmlFor="operator-sku">Código SKU</label>
+        <div style={styles.operatorSearchRow}><input id="operator-sku" inputMode="numeric" autoComplete="off" maxLength={8} value={sku} onChange={(event) => { setSku(event.target.value.replace(/\D/g, "")); setSearched(false); }} placeholder="Ej. 10803048" style={styles.operatorSearchInput} /><button type="submit" style={styles.operatorSearchButton}>Buscar</button></div>
+      </form>
+      {loading && <div style={styles.operatorStatus}>Consultando SKU…</div>}
+      {!loading && searched && !product && <div style={styles.operatorNotFound}><strong>SKU no encontrado</strong><span>Revisa que el código tenga 8 dígitos y exista en el Maestro.</span></div>}
+      {!loading && product && <section style={styles.operatorResult}>
+        <div style={styles.operatorProductHead}><span>SKU {product.sku}</span><h1>{product.description || "Sin descripción registrada"}</h1></div>
+        {overstock && <div style={styles.operatorOverstock}>! Sobrestock: el stock supera las posiciones asignadas.</div>}
+        <div style={styles.operatorMetricGrid}>
+          <OperatorMetric label="Stock" value={`${formatNumber(stock)} un.`} />
+          <OperatorMetric label="Palletizado" value={palletizing > 0 ? `${formatNumber(palletizing)} un./pallet` : "Sin registro"} />
+          <OperatorMetric label="Posiciones asignadas" value={assigned} />
+          <OperatorMetric label="Posiciones libres" value={free === null ? "—" : free} alert={overstock} />
+        </div>
+        <div style={styles.operatorLocations}><h2>Ubicación</h2>{grouped.length ? grouped.map((item) => <article key={`${item.area}-${item.group}`} style={styles.operatorLocationCard}><span>{item.area}</span><strong>{item.group}</strong><p>{item.details.join(" · ")}</p></article>) : <div style={styles.operatorEmptyLocation}>Sin ubicación asignada.</div>}</div>
+      </section>}
+    </main>
+  </div>;
+}
+
+function OperatorMetric({ label, value, alert }) {
+  return <div style={{ ...styles.operatorMetric, ...(alert ? styles.operatorMetricAlert : {}) }}><small>{label}</small><strong>{value}</strong></div>;
 }
 
 function SearchMetric({ label, value, alert }) {
@@ -604,7 +670,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V6.9.1 cierre exterior del panel</span>
+        <span style={styles.status}>V7.0 perfil Operador móvil</span>
       </div>
       {children}
     </section>
@@ -1564,6 +1630,7 @@ function AdminProfiles({ currentUserId }) {
             <span style={{ ...styles.roleBadge, ...roleBadgeStyles[item.role] }}>{roleLabels[item.role]}</span>
             <select value={item.role} disabled={isCurrent || savingId === item.id} onChange={(event) => changeRole(item.id, event.target.value)} style={styles.roleSelect} aria-label={`Rol de ${item.display_name}`}>
               <option value="viewer">Viewer · Solo lectura</option>
+              <option value="operator">Operador · Consulta móvil</option>
               <option value="editor">Editor · Puede editar</option>
               <option value="admin">Administrador · Control total</option>
             </select>
@@ -1580,9 +1647,10 @@ function AdminProfiles({ currentUserId }) {
   </Section>;
 }
 
-const roleLabels = { viewer: "Viewer", editor: "Editor", admin: "Administrador" };
+const roleLabels = { viewer: "Viewer", operator: "Operador", editor: "Editor", admin: "Administrador" };
 const roleBadgeStyles = {
   viewer: { background: "#F2F4F7", color: "#475467" },
+  operator: { background: "#E7FBFB", color: "#007C7D" },
   editor: { background: "#DDF9F8", color: "#007C7D" },
   admin: { background: "#E4E7EC", color: "#172033" },
 };
@@ -1928,6 +1996,27 @@ const rackPlacements = {
 };
 
 const styles = {
+  operatorShell: { minHeight: "100vh", background: "#F2F6F7", color: COLORS.text },
+  operatorHeader: { position: "sticky", top: 0, zIndex: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#071F2A", color: "#FFFFFF", boxShadow: "0 5px 18px rgba(7,31,42,.24)" },
+  operatorBrand: { display: "block", color: COLORS.turquoise, fontSize: 22, fontWeight: 950, letterSpacing: ".06em" },
+  operatorLogout: { padding: "9px 13px", border: "1px solid rgba(255,255,255,.35)", borderRadius: 10, background: "transparent", color: "#FFFFFF", fontWeight: 800 },
+  operatorMain: { width: "min(100%,560px)", margin: "0 auto", padding: "20px 14px 36px", display: "grid", gap: 16 },
+  operatorWelcome: { display: "grid", gap: 4 },
+  operatorSearchForm: { padding: 14, display: "grid", gap: 8, border: `1px solid ${COLORS.border}`, borderRadius: 16, background: "#FFFFFF", boxShadow: "0 8px 22px rgba(16,24,40,.08)", fontSize: 13, fontWeight: 800 },
+  operatorSearchRow: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 8 },
+  operatorSearchInput: { minWidth: 0, padding: "14px 13px", border: `2px solid ${COLORS.turquoise}`, borderRadius: 12, fontSize: 21, fontWeight: 850, letterSpacing: ".06em", outline: "none" },
+  operatorSearchButton: { padding: "0 18px", border: 0, borderRadius: 12, background: COLORS.turquoiseDark, color: "#FFFFFF", fontSize: 15, fontWeight: 900 },
+  operatorStatus: { padding: 24, borderRadius: 14, background: "#FFFFFF", textAlign: "center", color: COLORS.muted },
+  operatorNotFound: { padding: 18, display: "grid", gap: 5, border: "1px solid #FDA29B", borderRadius: 14, background: "#FFF1F1", color: "#B42318" },
+  operatorResult: { display: "grid", gap: 14 },
+  operatorProductHead: { padding: "17px 16px", borderRadius: 16, background: "linear-gradient(135deg,#071F2A,#0B3B4A)", color: "#FFFFFF", boxShadow: "0 10px 26px rgba(7,31,42,.18)" },
+  operatorMetricGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 9 },
+  operatorMetric: { minHeight: 82, padding: 12, display: "grid", alignContent: "space-between", gap: 7, border: `1px solid ${COLORS.border}`, borderRadius: 14, background: "#FFFFFF" },
+  operatorMetricAlert: { borderColor: "#F04438", background: "#FFF1F1", color: "#B42318" },
+  operatorOverstock: { padding: 12, borderRadius: 12, background: "#F04438", color: "#FFFFFF", fontSize: 13, fontWeight: 900 },
+  operatorLocations: { display: "grid", gap: 9 },
+  operatorLocationCard: { padding: 14, display: "grid", gap: 4, border: `1px solid ${COLORS.turquoise}`, borderRadius: 14, background: "#FFFFFF", boxShadow: "0 6px 16px rgba(16,24,40,.06)" },
+  operatorEmptyLocation: { padding: 18, borderRadius: 14, background: "#FFFFFF", color: COLORS.muted, textAlign: "center" },
   app: { minHeight: "100vh", padding: 28, background: COLORS.background, color: COLORS.text, fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
   header: { maxWidth: 1280, margin: "0 auto 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, flexWrap: "wrap" },
   eyebrow: { margin: "0 0 6px", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800, letterSpacing: ".16em" },
