@@ -99,6 +99,7 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false);
   const [syncState, setSyncState] = useState("idle");
   const [appError, setAppError] = useState("");
+  const [desktopNotifications, setDesktopNotifications] = useState(() => localStorage.getItem("demaria-stock-notifications") === "on" && "Notification" in window && Notification.permission === "granted");
   const [mainTab, setMainTab] = useState("b70");
   const [sub70, setSub70] = useState("racks");
   const [sub60, setSub60] = useState("envases");
@@ -137,6 +138,28 @@ export default function App() {
 
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  async function toggleDesktopNotifications() {
+    if (!desktopNotifications && "Notification" in window && Notification.permission === "default") {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") return;
+    }
+    setDesktopNotifications((current) => {
+      localStorage.setItem("demaria-stock-notifications", current ? "off" : "on");
+      return !current;
+    });
+  }
+
+  useEffect(() => {
+    if (!session?.user || !desktopNotifications) return;
+    const channel = supabase.channel(`stock-alerts-${session.user.id}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "stock_movement_alerts" }, ({ new: alert }) => {
+      if ("Notification" in window && Notification.permission === "granted") {
+        const sign = alert.movement_type === "in" ? "+" : "-";
+        new Notification(`Movimiento de stock · SKU ${alert.sku}`, { body: `${sign}${formatNumber(alert.quantity)} unidades · ${alert.operator_name}`, tag: `stock-${alert.movement_id}` });
+      }
+    }).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id, desktopNotifications]);
 
   useEffect(() => {
     if (!session?.user) return;
@@ -345,7 +368,7 @@ export default function App() {
   const displayName = profile.display_name || session.user.email || "Usuario";
   const initials = displayName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const roleLabel = profile.role === "admin" ? "Administrador" : profile.role === "editor" ? "Editor" : profile.role === "operator" ? "Operador" : "Viewer";
-  if (profile.role === "operator") return <OperatorMobile profile={profile} rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} onSignOut={() => supabase.auth.signOut()} />;
+  if (profile.role === "operator") return <OperatorMobile profile={profile} rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} onSignOut={() => supabase.auth.signOut()} desktopNotifications={desktopNotifications} onToggleNotifications={toggleDesktopNotifications} />;
 
   return (
     <div
@@ -427,12 +450,12 @@ export default function App() {
               </div>
             )}
           </div>
-          <div style={styles.userCard}>
+          <div style={styles.userControlStack}><div style={styles.userCard}>
             <div style={styles.userAvatar}>{initials || "US"}</div>
             <div style={styles.userText}><strong>{displayName}</strong><span>{roleLabel} · {syncState === "saving" ? "Guardando..." : syncState === "saved" ? "Guardado" : syncState === "error" ? "Error al guardar" : "En línea"}</span></div>
             <span style={{ ...styles.onlineDot, ...(syncState === "error" ? styles.errorDot : {}) }} />
             <button type="button" onClick={() => supabase.auth.signOut()} style={styles.signOutButton}>Salir</button>
-          </div>
+          </div><label style={styles.desktopNotificationToggle}><input type="checkbox" checked={desktopNotifications} onChange={toggleDesktopNotifications} /><span>Alertas de stock en este equipo</span></label></div>
         </div>
       </header>
 
@@ -456,7 +479,7 @@ export default function App() {
   );
 }
 
-function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut }) {
+function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut, desktopNotifications, onToggleNotifications }) {
   const [sku, setSku] = useState("");
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -520,7 +543,7 @@ function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut
   return <div style={styles.operatorShell}>
     <header style={styles.operatorHeader}>
       <div><span style={styles.operatorBrand}>DEMΛRIA</span><small>Consulta de bodega</small></div>
-      <button type="button" onClick={onSignOut} style={styles.operatorLogout}>Salir</button>
+      <div style={styles.operatorHeaderActions}><label style={styles.operatorNotificationToggle}><input type="checkbox" checked={desktopNotifications} onChange={onToggleNotifications} /> Alertas</label><button type="button" onClick={onSignOut} style={styles.operatorLogout}>Salir</button></div>
     </header>
     <main style={styles.operatorMain}>
       <div style={styles.operatorWelcome}><span>Perfil Operador</span><strong>{profile.display_name || "Operador"}</strong><p>Ingresa un SKU para consultar stock y ubicación.</p></div>
@@ -708,7 +731,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V7.1 control de stock Operador</span>
+        <span style={styles.status}>V7.2 anulaciones y alertas</span>
       </div>
       {children}
     </section>
@@ -1632,6 +1655,14 @@ function StockNotifications({ currentUserId }) {
     setMovements(result.data ?? []); setLoading(false);
   }
   useEffect(() => { loadMovements(); }, [filter]);
+  async function cancelIncome(item) {
+    const reason = window.prompt(`Motivo de anulación del ingreso ${item.sku}:`, "Anulación administrativa");
+    if (reason === null) return;
+    if (!window.confirm(`¿Anular el ingreso de ${formatNumber(item.quantity)} unidades del SKU ${item.sku}?`)) return;
+    const result = await supabase.rpc("admin_cancel_stock_income", { target_movement_id: item.id, reason });
+    if (result.error) window.alert(result.error.message); else loadMovements();
+  }
+
   async function reviewMovement(id) {
     await supabase.from("stock_movements").update({ reviewed: true, reviewed_by: currentUserId, reviewed_at: new Date().toISOString() }).eq("id", id);
     loadMovements();
@@ -1639,7 +1670,7 @@ function StockNotifications({ currentUserId }) {
   const documentLabels = { guia_despacho: "Guía de despacho", factura: "Factura", migo_devolucion: "MIGO de devolución", folio_pedido: "Folio de pedido" };
   return <Section title="Notificaciones de stock" description="Bandeja de ingresos y egresos registrados por operadores.">
     <div style={styles.notificationFilters}>{[["pending","Pendientes"],["all","Todas"],["reviewed","Revisadas"],["in","Ingresos"],["out","Egresos"]].map(([value,label]) => <button key={value} onClick={() => setFilter(value)} style={filter === value ? styles.actionPrimary : styles.actionSecondary}>{label}</button>)}</div>
-    {loading ? <LoadingPanel text="Cargando movimientos..." /> : <div style={styles.notificationList}>{movements.length ? movements.map((item) => <article key={item.id} style={{ ...styles.notificationCard, ...(item.movement_type === "out" ? styles.notificationOut : styles.notificationIn) }}><div style={styles.notificationHeader}><strong>{item.movement_type === "in" ? "Ingreso" : "Egreso"} · SKU {item.sku}</strong><span>{new Date(item.created_at).toLocaleString("es-CL")}</span></div><p>{item.product_description}</p><div style={styles.notificationData}><span>Cantidad <b>{item.movement_type === "in" ? "+" : "-"}{formatNumber(item.quantity)}</b></span><span>Stock anterior <b>{formatNumber(item.previous_stock)}</b></span><span>Stock nuevo <b>{formatNumber(item.new_stock)}</b></span><span>Documento <b>{documentLabels[item.document_type]} {item.document_number}</b></span><span>Operador <b>{item.performed_by_name}</b></span></div>{!item.reviewed ? <button onClick={() => reviewMovement(item.id)} style={styles.actionPrimary}>Marcar como revisada</button> : <span style={styles.reviewedBadge}>Revisada</span>}</article>) : <div style={styles.operatorEmptyLocation}>No hay movimientos para este filtro.</div>}</div>}
+    {loading ? <LoadingPanel text="Cargando movimientos..." /> : <div style={styles.notificationList}>{movements.length ? movements.map((item) => <article key={item.id} style={{ ...styles.notificationCard, ...(item.movement_type === "out" ? styles.notificationOut : styles.notificationIn), ...(item.cancelled ? styles.notificationCancelled : {}) }}><div style={styles.notificationHeader}><strong>{item.movement_type === "in" ? "Ingreso" : "Egreso"} · SKU {item.sku}</strong><span>{new Date(item.created_at).toLocaleString("es-CL")}</span></div><p>{item.product_description}</p>{item.cancelled && <div style={styles.cancelledBadge}>Ingreso anulado · {item.cancellation_reason}</div>}<div style={styles.notificationData}><span>Cantidad <b>{item.movement_type === "in" ? "+" : "-"}{formatNumber(item.quantity)}</b></span><span>Stock anterior <b>{formatNumber(item.previous_stock)}</b></span><span>Stock nuevo <b>{formatNumber(item.new_stock)}</b></span><span>Documento <b>{documentLabels[item.document_type]} {item.document_number}</b></span><span>Operador <b>{item.performed_by_name}</b></span></div><div style={styles.notificationActions}>{item.movement_type === "in" && !item.cancelled && <button onClick={() => cancelIncome(item)} style={styles.actionDanger}>Anular ingreso</button>}{!item.reviewed ? <button onClick={() => reviewMovement(item.id)} style={styles.actionPrimary}>Marcar como revisada</button> : <span style={styles.reviewedBadge}>Revisada</span>}</div></article>) : <div style={styles.operatorEmptyLocation}>No hay movimientos para este filtro.</div>}</div>}
   </Section>;
 }
 
@@ -1800,6 +1831,7 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, canEdit, isAdmin
   const [importType, setImportType] = useState("");
   const [importing, setImporting] = useState(false);
   const [history, setHistory] = useState([]);
+  const [quickEdit, setQuickEdit] = useState(null);
 
   const locationsBySku = {};
   Object.entries(rackCells).forEach(([key, sku]) => {
@@ -1843,6 +1875,15 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, canEdit, isAdmin
     const locations = locationsBySku[product.sku] ?? [];
     const assigned = locations.length;
     return { ...product, stock, units, pallets, locations, assigned, difference: assigned - pallets };
+  }
+
+  async function saveQuickEdit() {
+    if (!quickEdit || !canEdit) return;
+    const value = Math.max(0, Number(quickEdit.value) || 0);
+    const result = await supabase.from("products").update({ [quickEdit.field]: value, updated_by: userId, updated_at: new Date().toISOString() }).eq("sku", quickEdit.sku).select("sku, description, stock, units_per_pallet, observation, updated_at").single();
+    if (result.error) setError(result.error.message);
+    else setProducts((current) => current.map((item) => item.sku === quickEdit.sku ? result.data : item));
+    setQuickEdit(null);
   }
 
   async function saveProduct(event, source, isNew) {
@@ -2033,8 +2074,8 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, canEdit, isAdmin
         return <tr key={item.sku}>
           <td><strong>{item.sku}</strong></td>
           <td>{editing ? <input value={editDraft.description} onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })} style={styles.tableInput} /> : item.description || "—"}</td>
-          <td>{editing ? <input type="number" min="0" step="any" value={editDraft.stock} onChange={(e) => setEditDraft({ ...editDraft, stock: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.stock)}</td>
-          <td>{editing ? <input type="number" min="0" step="any" value={editDraft.units_per_pallet} onChange={(e) => setEditDraft({ ...editDraft, units_per_pallet: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.units)}</td>
+          <td onDoubleClick={() => canEdit && !editing && setQuickEdit({ sku: item.sku, field: "stock", value: item.stock })} style={canEdit ? styles.quickEditableCell : undefined}>{quickEdit?.sku === item.sku && quickEdit.field === "stock" ? <input autoFocus type="number" min="0" step="any" value={quickEdit.value} onChange={(event) => setQuickEdit({ ...quickEdit, value: event.target.value })} onBlur={saveQuickEdit} onKeyDown={(event) => { if (event.key === "Enter") saveQuickEdit(); if (event.key === "Escape") setQuickEdit(null); }} style={styles.tableInputSmall} /> : editing ? <input type="number" min="0" step="any" value={editDraft.stock} onChange={(e) => setEditDraft({ ...editDraft, stock: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.stock)}</td>
+          <td onDoubleClick={() => canEdit && !editing && setQuickEdit({ sku: item.sku, field: "units_per_pallet", value: item.units })} style={canEdit ? styles.quickEditableCell : undefined}>{quickEdit?.sku === item.sku && quickEdit.field === "units_per_pallet" ? <input autoFocus type="number" min="0" step="any" value={quickEdit.value} onChange={(event) => setQuickEdit({ ...quickEdit, value: event.target.value })} onBlur={saveQuickEdit} onKeyDown={(event) => { if (event.key === "Enter") saveQuickEdit(); if (event.key === "Escape") setQuickEdit(null); }} style={styles.tableInputSmall} /> : editing ? <input type="number" min="0" step="any" value={editDraft.units_per_pallet} onChange={(e) => setEditDraft({ ...editDraft, units_per_pallet: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.units)}</td>
           <td>{item.units > 0 ? item.pallets.toFixed(2) : "—"}</td>
           <td><strong>{item.assigned}</strong></td>
           <td><span style={{ ...styles.differenceBadge, ...(item.difference < -0.01 ? styles.diffNegative : item.difference > 0.01 ? styles.diffPositive : styles.diffBalanced) }}>{item.units > 0 ? `${item.difference < -0.01 ? "! " : ""}${signedNumber(item.difference)}` : "—"}</span></td>
@@ -2102,6 +2143,9 @@ const styles = {
   operatorMovementError: { padding: 10, borderRadius: 9, background: "#FFF1F1", color: "#B42318", fontSize: 12 },
   operatorMovementSuccess: { padding: 10, borderRadius: 9, background: "#ECFDF3", color: "#027A48", fontSize: 12 },
   operatorPermissionToggle: { padding: "7px 9px", display: "flex", alignItems: "center", gap: 7, borderRadius: 9, background: "#F7FFFF", color: COLORS.turquoiseDark, fontSize: 10, fontWeight: 800 },
+  notificationActions: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  notificationCancelled: { opacity: .72, background: "#F2F4F7", borderLeft: "5px solid #667085" },
+  cancelledBadge: { padding: 8, borderRadius: 8, background: "#E4E7EC", color: "#344054", fontSize: 10, fontWeight: 850 },
   notificationFilters: { marginBottom: 14, display: "flex", gap: 7, flexWrap: "wrap" },
   notificationList: { display: "grid", gap: 11 },
   notificationCard: { padding: 15, display: "grid", gap: 9, border: `1px solid ${COLORS.border}`, borderRadius: 13, background: "#FFFFFF" },
@@ -2147,6 +2191,10 @@ const styles = {
   searchLocationCard: { width: "100%", padding: "10px 11px", display: "flex", alignItems: "center", gap: 10, border: `1px solid ${COLORS.turquoise}`, borderRadius: 11, background: "#E7FBFB", color: COLORS.text, textAlign: "left", cursor: "pointer" },
   searchLocationIcon: { width: 28, height: 28, display: "grid", placeItems: "center", flex: "0 0 28px", borderRadius: 8, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 17 },
   searchLocationText: { display: "grid", gap: 2, flex: 1 },
+  userControlStack: { display: "grid", gap: 5, justifyItems: "end" },
+  desktopNotificationToggle: { display: "flex", alignItems: "center", gap: 6, color: COLORS.muted, fontSize: 10, cursor: "pointer" },
+  operatorHeaderActions: { display: "flex", alignItems: "center", gap: 8 },
+  operatorNotificationToggle: { display: "flex", alignItems: "center", gap: 5, color: "#FFFFFF", fontSize: 10 },
   userCard: { minHeight: 46, padding: "5px 10px 5px 6px", display: "flex", alignItems: "center", gap: 9, border: `1px solid ${COLORS.border}`, borderRadius: 13, background: "#FFFFFF", boxShadow: "0 7px 22px rgba(16,24,40,.06)" },
   userAvatar: { width: 34, height: 34, display: "grid", placeItems: "center", borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 11, fontWeight: 900 },
   userText: { display: "grid", gap: 2, minWidth: 105, fontSize: 12 },
@@ -2266,7 +2314,8 @@ const styles = {
   masterTableWrap: { overflowX: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 12 },
   masterTable: { width: "100%", minWidth: 1380, borderCollapse: "collapse", background: "#FFFFFF", fontSize: 11 },
   tableInput: { width: "100%", minWidth: 130, padding: "7px 8px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 7, boxSizing: "border-box" },
-  tableInputSmall: { width: 88, padding: "7px 8px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 7, boxSizing: "border-box" },
+  quickEditableCell: { cursor: "cell", background: "#FBFFFF" },
+    tableInputSmall: { width: 88, padding: "7px 8px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 7, boxSizing: "border-box" },
   differenceBadge: { padding: "5px 7px", borderRadius: 999, fontSize: 10, fontWeight: 850, whiteSpace: "nowrap" },
   diffNegative: { background: "#FEE4E2", color: "#B42318" }, diffPositive: { background: "#ECFDF3", color: "#027A48" }, diffBalanced: { background: "#E7F6EC", color: "#166534" },
   locationList: { minWidth: 210, maxWidth: 280, display: "grid", gap: 6 },
