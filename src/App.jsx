@@ -147,7 +147,7 @@ export default function App() {
       setAppError("");
 
       const [profileResult, locationsResult] = await Promise.all([
-        supabase.from("profiles").select("display_name, role").eq("id", session.user.id).single(),
+        supabase.from("profiles").select("display_name, role, can_adjust_stock").eq("id", session.user.id).single(),
         supabase
           .from("warehouse_locations")
           .select("area, unit_number, level, position, sku")
@@ -443,13 +443,14 @@ export default function App() {
         <Tab active={mainTab === "b70"} onClick={() => setMainTab("b70")}>Bodega 70</Tab>
         <Tab active={mainTab === "b60"} onClick={() => setMainTab("b60")}>Bodega 60</Tab>
         <Tab active={mainTab === "master"} onClick={() => setMainTab("master")}>Maestro de Productos</Tab>
-        {profile.role === "admin" && <Tab active={mainTab === "admin"} onClick={() => setMainTab("admin")}>Administración</Tab>}
+        {profile.role === "admin" && <><Tab active={mainTab === "admin"} onClick={() => setMainTab("admin")}>Administración</Tab><Tab active={mainTab === "notifications"} onClick={() => setMainTab("notifications")}>Notificaciones</Tab></>}
       </nav>
       <main style={styles.content}>
         {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} focusLocation={focusLocation} />}
         {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} canEdit={canEdit} focusLocation={focusLocation} />}
         {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(location) => { setFocusLocation(location); if (location.target === "envases") { setMainTab("b60"); setSub60("envases"); } else { setMainTab("b70"); setSub70(location.target); } }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
         {mainTab === "admin" && profile.role === "admin" && <AdminProfiles currentUserId={session.user.id} />}
+        {mainTab === "notifications" && profile.role === "admin" && <StockNotifications currentUserId={session.user.id} />}
       </main>
     </div>
   );
@@ -460,12 +461,19 @@ function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [movementMode, setMovementMode] = useState("in");
+  const [movementQuantity, setMovementQuantity] = useState("");
+  const [documentType, setDocumentType] = useState("guia_despacho");
+  const [documentNumber, setDocumentNumber] = useState("");
+  const [movementSaving, setMovementSaving] = useState(false);
+  const [movementMessage, setMovementMessage] = useState("");
+  const [movementError, setMovementError] = useState("");
   const normalizedSku = sku.trim();
 
   const locations = normalizedSku ? [
-    ...Object.entries(rackCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [rack, level, position] = key.split("-"); return { area: "Racks Selectivos", group: `Rack ${rack}`, detail: `P${position} · Nivel ${level}` }; }),
-    ...Object.entries(driveCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [street, level, depth] = key.split("-"); return { area: "Drive In", group: `Calle ${String(street).padStart(2,"0")}`, detail: `P${depth} · Nivel ${level}` }; }),
-    ...Object.entries(envaseCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [street, level, position] = key.split("-"); return { area: "Envases", group: `Calle ${String(street).padStart(2,"0")}`, detail: `P${position} · Nivel ${level}` }; }),
+    ...Object.entries(rackCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [rack, level, position] = key.split("-"); return { warehouse: "Bodega 70", area: "Racks Selectivos", group: `Rack ${rack}` }; }),
+    ...Object.entries(driveCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [street, level, depth] = key.split("-"); return { warehouse: "Bodega 70", area: "Drive In", group: `Calle ${String(street).padStart(2,"0")}` }; }),
+    ...Object.entries(envaseCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [street, level, position] = key.split("-"); return { warehouse: "Bodega 60", area: "Envases", group: `Calle ${String(street).padStart(2,"0")}` }; }),
   ] : [];
   const assigned = locations.length;
   const stock = Number(product?.stock) || 0;
@@ -474,9 +482,8 @@ function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut
   const free = palletizing > 0 ? Math.max(assigned - Math.ceil(pallets), 0) : null;
   const overstock = assigned > 0 && palletizing > 0 && pallets > assigned;
   const grouped = Object.values(locations.reduce((acc, item) => {
-    const key = `${item.area}|${item.group}`;
-    if (!acc[key]) acc[key] = { ...item, details: [] };
-    acc[key].details.push(item.detail);
+    const key = `${item.warehouse}|${item.area}|${item.group}`;
+    if (!acc[key]) acc[key] = item;
     return acc;
   }, {}));
 
@@ -486,6 +493,28 @@ function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut
     setLoading(true); setSearched(true);
     const { data } = await supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", normalizedSku).maybeSingle();
     setProduct(data ?? null); setLoading(false);
+  }
+
+  async function submitStockMovement(event) {
+    event.preventDefault();
+    setMovementError(""); setMovementMessage("");
+    const quantity = Number(movementQuantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) return setMovementError("La cantidad debe ser un número entero mayor que cero.");
+    if (!/^\d+$/.test(documentNumber)) return setMovementError("El número de documento debe contener solo números.");
+    if (movementMode === "out" && quantity > stock) return setMovementError(`No puedes quitar más de ${formatNumber(stock)} unidades.`);
+    const action = movementMode === "in" ? "agregar" : "quitar";
+    if (!window.confirm(`¿Confirmar ${action} ${formatNumber(quantity)} unidades al SKU ${product.sku}?`)) return;
+    setMovementSaving(true);
+    const result = await supabase.rpc("operator_adjust_stock", { target_sku: product.sku, movement: movementMode, movement_quantity: quantity, doc_type: documentType, doc_number: documentNumber });
+    if (result.error) setMovementError(result.error.message);
+    else {
+      const row = Array.isArray(result.data) ? result.data[0] : result.data;
+      const nextStock = Number(row?.new_stock);
+      setProduct((current) => ({ ...current, stock: nextStock }));
+      setMovementMessage(`Movimiento registrado. Nuevo stock: ${formatNumber(nextStock)} unidades.`);
+      setMovementQuantity(""); setDocumentNumber("");
+    }
+    setMovementSaving(false);
   }
 
   return <div style={styles.operatorShell}>
@@ -510,7 +539,16 @@ function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut
           <OperatorMetric label="Posiciones asignadas" value={assigned} />
           <OperatorMetric label="Posiciones libres" value={free === null ? "—" : free} alert={overstock} />
         </div>
-        <div style={styles.operatorLocations}><h2>Ubicación</h2>{grouped.length ? grouped.map((item) => <article key={`${item.area}-${item.group}`} style={styles.operatorLocationCard}><span>{item.area}</span><strong>{item.group}</strong><p>{item.details.join(" · ")}</p></article>) : <div style={styles.operatorEmptyLocation}>Sin ubicación asignada.</div>}</div>
+        {profile.can_adjust_stock && <form onSubmit={submitStockMovement} style={styles.operatorMovementCard}>
+          <div><span style={styles.searchSummaryLabel}>Control autorizado</span><h2>Movimiento de stock</h2></div>
+          <div style={styles.operatorMovementTabs}><button type="button" onClick={() => setMovementMode("in")} style={movementMode === "in" ? styles.operatorMovementActiveIn : styles.operatorMovementTab}>Agregar stock</button><button type="button" onClick={() => setMovementMode("out")} style={movementMode === "out" ? styles.operatorMovementActiveOut : styles.operatorMovementTab}>Quitar stock</button></div>
+          <label style={styles.operatorField}>Cantidad de unidades<input inputMode="numeric" value={movementQuantity} onChange={(event) => setMovementQuantity(event.target.value.replace(/\D/g,""))} required style={styles.operatorControlInput} /></label>
+          <label style={styles.operatorField}>Documento asociado<select value={documentType} onChange={(event) => setDocumentType(event.target.value)} style={styles.operatorControlInput}><option value="guia_despacho">Guía de despacho</option><option value="factura">Factura</option><option value="migo_devolucion">MIGO de devolución</option><option value="folio_pedido">Folio de pedido</option></select></label>
+          <label style={styles.operatorField}>Número de documento<input inputMode="numeric" value={documentNumber} onChange={(event) => setDocumentNumber(event.target.value.replace(/\D/g,""))} required style={styles.operatorControlInput} /></label>
+          {movementError && <div style={styles.operatorMovementError}>{movementError}</div>}{movementMessage && <div style={styles.operatorMovementSuccess}>{movementMessage}</div>}
+          <button type="submit" disabled={movementSaving} style={movementMode === "in" ? styles.operatorSubmitIn : styles.operatorSubmitOut}>{movementSaving ? "Registrando..." : movementMode === "in" ? "Confirmar ingreso" : "Confirmar egreso"}</button>
+        </form>}
+        <div style={styles.operatorLocations}><h2>Ubicación</h2>{grouped.length ? grouped.map((item) => <article key={`${item.warehouse}-${item.area}-${item.group}`} style={styles.operatorLocationCard}><strong>{item.warehouse}</strong><span>{item.area} · {item.group}</span></article>) : <div style={styles.operatorEmptyLocation}>Sin ubicación asignada.</div>}</div>
       </section>}
     </main>
   </div>;
@@ -670,7 +708,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V7.0 perfil Operador móvil</span>
+        <span style={styles.status}>V7.1 control de stock Operador</span>
       </div>
       {children}
     </section>
@@ -1580,6 +1618,31 @@ function Placeholder({ code, title, text }) {
   );
 }
 
+function StockNotifications({ currentUserId }) {
+  const [movements, setMovements] = useState([]);
+  const [filter, setFilter] = useState("pending");
+  const [loading, setLoading] = useState(true);
+  async function loadMovements() {
+    setLoading(true);
+    let query = supabase.from("stock_movements").select("*").order("created_at", { ascending: false });
+    if (filter === "pending") query = query.eq("reviewed", false);
+    if (filter === "reviewed") query = query.eq("reviewed", true);
+    if (filter === "in" || filter === "out") query = query.eq("movement_type", filter);
+    const result = await query;
+    setMovements(result.data ?? []); setLoading(false);
+  }
+  useEffect(() => { loadMovements(); }, [filter]);
+  async function reviewMovement(id) {
+    await supabase.from("stock_movements").update({ reviewed: true, reviewed_by: currentUserId, reviewed_at: new Date().toISOString() }).eq("id", id);
+    loadMovements();
+  }
+  const documentLabels = { guia_despacho: "Guía de despacho", factura: "Factura", migo_devolucion: "MIGO de devolución", folio_pedido: "Folio de pedido" };
+  return <Section title="Notificaciones de stock" description="Bandeja de ingresos y egresos registrados por operadores.">
+    <div style={styles.notificationFilters}>{[["pending","Pendientes"],["all","Todas"],["reviewed","Revisadas"],["in","Ingresos"],["out","Egresos"]].map(([value,label]) => <button key={value} onClick={() => setFilter(value)} style={filter === value ? styles.actionPrimary : styles.actionSecondary}>{label}</button>)}</div>
+    {loading ? <LoadingPanel text="Cargando movimientos..." /> : <div style={styles.notificationList}>{movements.length ? movements.map((item) => <article key={item.id} style={{ ...styles.notificationCard, ...(item.movement_type === "out" ? styles.notificationOut : styles.notificationIn) }}><div style={styles.notificationHeader}><strong>{item.movement_type === "in" ? "Ingreso" : "Egreso"} · SKU {item.sku}</strong><span>{new Date(item.created_at).toLocaleString("es-CL")}</span></div><p>{item.product_description}</p><div style={styles.notificationData}><span>Cantidad <b>{item.movement_type === "in" ? "+" : "-"}{formatNumber(item.quantity)}</b></span><span>Stock anterior <b>{formatNumber(item.previous_stock)}</b></span><span>Stock nuevo <b>{formatNumber(item.new_stock)}</b></span><span>Documento <b>{documentLabels[item.document_type]} {item.document_number}</b></span><span>Operador <b>{item.performed_by_name}</b></span></div>{!item.reviewed ? <button onClick={() => reviewMovement(item.id)} style={styles.actionPrimary}>Marcar como revisada</button> : <span style={styles.reviewedBadge}>Revisada</span>}</article>) : <div style={styles.operatorEmptyLocation}>No hay movimientos para este filtro.</div>}</div>}
+  </Section>;
+}
+
 function AdminProfiles({ currentUserId }) {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1589,7 +1652,7 @@ function AdminProfiles({ currentUserId }) {
 
   async function loadProfiles() {
     setLoading(true); setError("");
-    const result = await supabase.from("profiles").select("id, display_name, role, created_at, updated_at").order("display_name");
+    const result = await supabase.from("profiles").select("id, display_name, role, can_adjust_stock, created_at, updated_at").order("display_name");
     if (result.error) setError(result.error.message);
     else setProfiles(result.data ?? []);
     setLoading(false);
@@ -1597,10 +1660,20 @@ function AdminProfiles({ currentUserId }) {
 
   useEffect(() => { loadProfiles(); }, []);
 
+  async function toggleOperatorStock(item) {
+    if (item.role !== "operator") return;
+    setSavingId(item.id); setError(""); setMessage("");
+    const nextValue = !item.can_adjust_stock;
+    const result = await supabase.from("profiles").update({ can_adjust_stock: nextValue, updated_at: new Date().toISOString() }).eq("id", item.id).select("id, can_adjust_stock").single();
+    if (result.error) setError(result.error.message);
+    else { setProfiles((current) => current.map((profile) => profile.id === item.id ? { ...profile, can_adjust_stock: nextValue } : profile)); setMessage(nextValue ? "Modificación de stock habilitada." : "Modificación de stock deshabilitada."); }
+    setSavingId("");
+  }
+
   async function changeRole(id, role) {
     if (id === currentUserId) return setError("Por seguridad, no puedes cambiar tu propio rol desde la aplicación.");
     setSavingId(id); setError(""); setMessage("");
-    const result = await supabase.from("profiles").update({ role, updated_at: new Date().toISOString() }).eq("id", id).select("id, role").single();
+    const result = await supabase.from("profiles").update({ role, can_adjust_stock: role === "operator" ? false : false, updated_at: new Date().toISOString() }).eq("id", id).select("id, role").single();
     if (result.error) setError(result.error.message);
     else {
       setProfiles((current) => current.map((item) => item.id === id ? { ...item, role } : item));
@@ -1634,6 +1707,7 @@ function AdminProfiles({ currentUserId }) {
               <option value="editor">Editor · Puede editar</option>
               <option value="admin">Administrador · Control total</option>
             </select>
+            {item.role === "operator" && <label style={styles.operatorPermissionToggle}><input type="checkbox" checked={Boolean(item.can_adjust_stock)} disabled={savingId === item.id} onChange={() => toggleOperatorStock(item)} /><span>{item.can_adjust_stock ? "Modificar stock: habilitado" : "Modificar stock: deshabilitado"}</span></label>}
             {isCurrent && <small style={styles.currentUserTag}>Tu usuario</small>}
           </div>
         </article>;
@@ -2016,6 +2090,26 @@ const styles = {
   operatorOverstock: { padding: 12, borderRadius: 12, background: "#F04438", color: "#FFFFFF", fontSize: 13, fontWeight: 900 },
   operatorLocations: { display: "grid", gap: 9 },
   operatorLocationCard: { padding: 14, display: "grid", gap: 4, border: `1px solid ${COLORS.turquoise}`, borderRadius: 14, background: "#FFFFFF", boxShadow: "0 6px 16px rgba(16,24,40,.06)" },
+  operatorMovementCard: { padding: 16, display: "grid", gap: 12, border: `1px solid ${COLORS.border}`, borderRadius: 16, background: "#FFFFFF", boxShadow: "0 8px 22px rgba(16,24,40,.08)" },
+  operatorMovementTabs: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
+  operatorMovementTab: { padding: 11, border: `1px solid ${COLORS.border}`, borderRadius: 10, background: "#FFFFFF", color: COLORS.muted, fontWeight: 800 },
+  operatorMovementActiveIn: { padding: 11, border: "1px solid #12B76A", borderRadius: 10, background: "#ECFDF3", color: "#027A48", fontWeight: 900 },
+  operatorMovementActiveOut: { padding: 11, border: "1px solid #F04438", borderRadius: 10, background: "#FFF1F1", color: "#B42318", fontWeight: 900 },
+  operatorField: { display: "grid", gap: 6, fontSize: 12, fontWeight: 800 },
+  operatorControlInput: { width: "100%", padding: "12px 11px", border: `1px solid ${COLORS.border}`, borderRadius: 10, boxSizing: "border-box", background: "#FFFFFF", fontSize: 16 },
+  operatorSubmitIn: { padding: 13, border: 0, borderRadius: 11, background: "#12B76A", color: "#FFFFFF", fontWeight: 900, fontSize: 15 },
+  operatorSubmitOut: { padding: 13, border: 0, borderRadius: 11, background: "#F04438", color: "#FFFFFF", fontWeight: 900, fontSize: 15 },
+  operatorMovementError: { padding: 10, borderRadius: 9, background: "#FFF1F1", color: "#B42318", fontSize: 12 },
+  operatorMovementSuccess: { padding: 10, borderRadius: 9, background: "#ECFDF3", color: "#027A48", fontSize: 12 },
+  operatorPermissionToggle: { padding: "7px 9px", display: "flex", alignItems: "center", gap: 7, borderRadius: 9, background: "#F7FFFF", color: COLORS.turquoiseDark, fontSize: 10, fontWeight: 800 },
+  notificationFilters: { marginBottom: 14, display: "flex", gap: 7, flexWrap: "wrap" },
+  notificationList: { display: "grid", gap: 11 },
+  notificationCard: { padding: 15, display: "grid", gap: 9, border: `1px solid ${COLORS.border}`, borderRadius: 13, background: "#FFFFFF" },
+  notificationIn: { borderLeft: "5px solid #12B76A" },
+  notificationOut: { borderLeft: "5px solid #F04438" },
+  notificationHeader: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
+  notificationData: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 8, color: COLORS.muted, fontSize: 11 },
+  reviewedBadge: { width: "fit-content", padding: "6px 9px", borderRadius: 999, background: "#ECFDF3", color: "#027A48", fontSize: 10, fontWeight: 850 },
   operatorEmptyLocation: { padding: 18, borderRadius: 14, background: "#FFFFFF", color: COLORS.muted, textAlign: "center" },
   app: { minHeight: "100vh", padding: 28, background: COLORS.background, color: COLORS.text, fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
   header: { maxWidth: 1280, margin: "0 auto 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, flexWrap: "wrap" },
