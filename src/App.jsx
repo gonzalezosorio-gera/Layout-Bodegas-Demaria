@@ -696,8 +696,8 @@ function LoginScreen() {
   }
 
   return <div style={styles.authPage}><form onSubmit={submit} style={styles.loginCard}>
-    <div style={styles.loginMark}>D</div><p style={styles.eyebrow}>DEMARÍA</p>
-    <h1 style={styles.loginTitle}>{mode === "login" ? "Layout de Bodegas" : "Recuperar contraseña"}</h1>
+    <img src={`${import.meta.env.BASE_URL}demaria-logo.png`} alt="Demaria 1896" style={styles.loginLogo} />
+    <h1 style={styles.loginTitle}>{mode === "login" ? "Sistema de Gestión de Bodegas" : "Recuperar contraseña"}</h1>
     <p style={styles.loginText}>{mode === "login" ? "Ingresa con tu correo y contraseña autorizados." : "Escribe tu correo para recibir un enlace de recuperación."}</p>
     <label style={styles.fieldLabel}>Correo</label>
     <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" style={styles.loginInput} />
@@ -728,7 +728,7 @@ function PasswordRecoveryScreen({ onComplete }) {
   }
 
   return <div style={styles.authPage}><form onSubmit={update} style={styles.loginCard}>
-    <div style={styles.loginMark}>D</div><p style={styles.eyebrow}>DEMARÍA</p><h1 style={styles.loginTitle}>Nueva contraseña</h1>
+    <img src={`${import.meta.env.BASE_URL}demaria-logo.png`} alt="Demaria 1896" style={styles.loginLogo} /><h1 style={styles.loginTitle}>Nueva contraseña</h1>
     <p style={styles.loginText}>Crea una contraseña de al menos 8 caracteres.</p>
     <label style={styles.fieldLabel}>Nueva contraseña</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" style={styles.loginInput} />
     <label style={styles.fieldLabel}>Confirmar contraseña</label><input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} required minLength={8} autoComplete="new-password" style={styles.loginInput} />
@@ -774,7 +774,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V7.4.2 franja de logos</span>
+        <span style={styles.status}>V7.5 logo alineado y acceso corporativo</span>
       </div>
       {children}
     </section>
@@ -2176,8 +2176,8 @@ const styles = {
     homeDashboard: { display: "grid", gap: 16 },
     homeHero: { position: "relative", minHeight: 510, overflow: "hidden", borderRadius: 22, background: "#071F2A", boxShadow: "0 18px 48px rgba(16,24,40,.18)" },
     homeHeroImage: { width: "100%", height: "100%", minHeight: 510, display: "block", objectFit: "cover" },
-    brandStripSection: { padding: "14px 18px", overflow: "hidden", border: `1px solid ${COLORS.border}`, borderRadius: 18, background: "#FFFFFF", boxShadow: "0 10px 28px rgba(16,24,40,.08)" },
-    brandStripImage: { width: "100%", height: "auto", maxHeight: 76, display: "block", objectFit: "contain", objectPosition: "center", background: "#FFFFFF" },
+    brandStripSection: { padding: "8px 18px", overflow: "hidden", border: `1px solid ${COLORS.border}`, borderRadius: 18, background: "#FFFFFF", boxShadow: "0 10px 28px rgba(16,24,40,.08)" },
+    brandStripImage: { width: "100%", height: "auto", maxHeight: 128, display: "block", objectFit: "contain", objectPosition: "center", background: "transparent" },
     operatorShell: { minHeight: "100vh", background: "#F2F6F7", color: COLORS.text },
   operatorHeader: { position: "sticky", top: 0, zIndex: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#071F2A", color: "#FFFFFF", boxShadow: "0 5px 18px rgba(7,31,42,.24)" },
   operatorBrand: { display: "block", color: COLORS.turquoise, fontSize: 22, fontWeight: 950, letterSpacing: ".06em" },
@@ -2228,10 +2228,10 @@ const styles = {
   title: { margin: 0, fontSize: "clamp(28px,4vw,42px)", lineHeight: 1.1 },
   subtitle: { margin: "10px 0 0", color: COLORS.muted, fontSize: 15 },
   version: { padding: "8px 12px", height: "fit-content", borderRadius: 999, background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800 },
-  brandBlock: { minWidth: 290, display: "grid", gap: 5, justifyItems: "start" },
-  headerLogo: { width: 235, height: 70, display: "block", objectFit: "contain", objectPosition: "left center" },
-  systemTitle: { color: COLORS.text, fontSize: 14, fontWeight: 900, letterSpacing: ".04em" },
-  headerTools: { display: "flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 12, flex: 1, flexWrap: "wrap" },
+  brandBlock: { width: 248, display: "grid", gap: 4, justifyItems: "center", alignContent: "center" },
+  headerLogo: { width: 210, height: 62, display: "block", objectFit: "contain", objectPosition: "center" },
+  systemTitle: { color: COLORS.text, fontSize: 12, fontWeight: 950, letterSpacing: ".02em", textAlign: "center" },
+  headerTools: { width: "100%", display: "flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 12, flexWrap: "wrap" },
   searchWrap: { position: "relative", width: "min(430px, 100%)", zIndex: 15 },
   searchBox: { minHeight: 46, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", border: `1px solid ${COLORS.border}`, borderRadius: 13, background: "#FFFFFF", boxShadow: "0 7px 22px rgba(16,24,40,.06)" },
   searchIcon: { color: COLORS.turquoiseDark, fontSize: 23, lineHeight: 1, fontWeight: 900 },
@@ -2270,8 +2270,8 @@ const styles = {
   onlineDot: { width: 8, height: 8, borderRadius: 999, background: "#22C55E", boxShadow: "0 0 0 3px #DCFCE7" },
   authPage: { minHeight: "100vh", padding: 24, display: "grid", placeItems: "center", background: "linear-gradient(145deg,#E7FBFB,#F3F6F8 55%,#FFFFFF)" },
   loginCard: { width: "min(390px,100%)", padding: 30, display: "grid", gap: 10, border: `1px solid ${COLORS.border}`, borderRadius: 20, background: "#FFFFFF", boxShadow: "0 24px 70px rgba(16,24,40,.14)" },
-  loginMark: { width: 52, height: 52, display: "grid", placeItems: "center", borderRadius: 15, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 24, fontWeight: 900 },
-  loginTitle: { margin: 0, fontSize: 28 },
+  loginLogo: { width: "100%", maxWidth: 285, height: 82, margin: "0 auto 8px", display: "block", objectFit: "contain" },
+  loginTitle: { margin: 0, fontSize: 25, textAlign: "center" },
   loginText: { margin: "0 0 10px", color: COLORS.muted, fontSize: 14 },
   fieldLabel: { marginTop: 5, color: COLORS.text, fontSize: 12, fontWeight: 800 },
   loginInput: { width: "100%", padding: "12px 13px", border: `1px solid ${COLORS.border}`, borderRadius: 10, outline: "none", boxSizing: "border-box", fontSize: 14 },
