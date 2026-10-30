@@ -384,9 +384,8 @@ export default function App() {
     >
       <header style={styles.header}>
         <div style={styles.brandBlock}>
-          <p style={styles.eyebrow}>DEMARÍA</p>
-          <h1 style={styles.title}>Layout de Bodegas</h1>
-          <p style={styles.subtitle}>Gestión visual de ubicaciones, materiales y productos.</p>
+          <img src={`${import.meta.env.BASE_URL}demaria-logo.png`} alt="Demaria 1896" style={styles.headerLogo} />
+          <strong style={styles.systemTitle}>SISTEMA DE GESTIÓN DE BODEGAS</strong>
         </div>
         <div style={styles.headerTools}>
           <div style={styles.searchWrap} data-search-ui="true">
@@ -511,24 +510,17 @@ function SidebarWarehouse({ title, open, onToggle, children }) {
 function SidebarLink({ active, onClick, children }) {
   return <button type="button" onClick={onClick} style={{ ...styles.sideLink, ...(active ? styles.sideLinkActive : {}) }}>{children}</button>;
 }
-function HomeDashboard({ displayName, profile, onNavigate }) {
+function HomeDashboard() {
   return <section style={styles.homeDashboard}>
     <div style={styles.homeHero}>
       <img src={`${import.meta.env.BASE_URL}home-hero.png`} alt="Áreas logísticas y bodegas Demaría" style={styles.homeHeroImage} />
-      <div style={styles.homeHeroOverlay}><span style={styles.homeKicker}>SISTEMA DE GESTIÓN DE BODEGAS</span><h1>Control visual de inventario y ubicaciones</h1><p>Bienvenido, {displayName}. Consulta bodegas, productos y movimientos desde un único lugar.</p></div>
     </div>
-    <div style={styles.homeCards}>
-      <HomeCard code="70" title="Bodega 70" text="Racks Selectivos, Drive In y Altillo" onClick={() => onNavigate("b70","racks")} />
-      <HomeCard code="60" title="Bodega 60" text="Envases, etiquetas y Drive In" onClick={() => onNavigate("b60","envases")} />
-      <HomeCard code="V2" title="Bodega Virgo 2" text="Corrugados y productos especiales" onClick={() => onNavigate("virgo","corrugados")} />
-      <HomeCard code="MP" title="Maestro de Productos" text="Stock, palletizado y ubicaciones" onClick={() => onNavigate("master")} />
-      {profile.role === "admin" && <HomeCard code="NT" title="Notificaciones" text="Movimientos y alertas de stock" onClick={() => onNavigate("notifications")} />}
-    </div>
+    <section style={styles.brandStripSection} aria-label="Marcas Demaría">
+      <img src={`${import.meta.env.BASE_URL}brand-logos.png`} alt="Virginia, Virginia Pro, Brillina, Arom, Igenix, Team, Deyco, D-70, Killer y Deliciosa" style={styles.brandStripImage} />
+    </section>
   </section>;
 }
-function HomeCard({ code, title, text, onClick }) {
-  return <button type="button" onClick={onClick} style={styles.homeCard}><span style={styles.homeCardCode}>{code}</span><span><strong>{title}</strong><small>{text}</small></span><b>›</b></button>;
-}
+
 
 function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut, desktopNotifications, onToggleNotifications }) {
   const [sku, setSku] = useState("");
@@ -782,7 +774,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V7.3 portada y navegación lateral</span>
+        <span style={styles.status}>V7.4.2 franja de logos</span>
       </div>
       {children}
     </section>
@@ -2184,11 +2176,8 @@ const styles = {
     homeDashboard: { display: "grid", gap: 16 },
     homeHero: { position: "relative", minHeight: 510, overflow: "hidden", borderRadius: 22, background: "#071F2A", boxShadow: "0 18px 48px rgba(16,24,40,.18)" },
     homeHeroImage: { width: "100%", height: "100%", minHeight: 510, display: "block", objectFit: "cover" },
-    homeHeroOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "44px 38px 34px", color: "#FFFFFF", background: "linear-gradient(0deg,rgba(4,27,39,.96),rgba(4,27,39,.12))" },
-    homeKicker: { color: COLORS.turquoise, fontSize: 11, fontWeight: 900, letterSpacing: ".16em" },
-    homeCards: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(225px,1fr))", gap: 11 },
-    homeCard: { padding: 14, display: "grid", gridTemplateColumns: "48px minmax(0,1fr) auto", alignItems: "center", gap: 11, border: `1px solid ${COLORS.border}`, borderRadius: 14, background: "#FFFFFF", color: COLORS.text, textAlign: "left", cursor: "pointer", boxShadow: "0 7px 18px rgba(16,24,40,.06)" },
-    homeCardCode: { width: 46, height: 46, display: "grid", placeItems: "center", borderRadius: 12, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 13, fontWeight: 900 },
+    brandStripSection: { padding: "14px 18px", overflow: "hidden", border: `1px solid ${COLORS.border}`, borderRadius: 18, background: "#FFFFFF", boxShadow: "0 10px 28px rgba(16,24,40,.08)" },
+    brandStripImage: { width: "100%", height: "auto", maxHeight: 76, display: "block", objectFit: "contain", objectPosition: "center", background: "#FFFFFF" },
     operatorShell: { minHeight: "100vh", background: "#F2F6F7", color: COLORS.text },
   operatorHeader: { position: "sticky", top: 0, zIndex: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#071F2A", color: "#FFFFFF", boxShadow: "0 5px 18px rgba(7,31,42,.24)" },
   operatorBrand: { display: "block", color: COLORS.turquoise, fontSize: 22, fontWeight: 950, letterSpacing: ".06em" },
@@ -2239,7 +2228,9 @@ const styles = {
   title: { margin: 0, fontSize: "clamp(28px,4vw,42px)", lineHeight: 1.1 },
   subtitle: { margin: "10px 0 0", color: COLORS.muted, fontSize: 15 },
   version: { padding: "8px 12px", height: "fit-content", borderRadius: 999, background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800 },
-  brandBlock: { minWidth: 250 },
+  brandBlock: { minWidth: 290, display: "grid", gap: 5, justifyItems: "start" },
+  headerLogo: { width: 235, height: 70, display: "block", objectFit: "contain", objectPosition: "left center" },
+  systemTitle: { color: COLORS.text, fontSize: 14, fontWeight: 900, letterSpacing: ".04em" },
   headerTools: { display: "flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 12, flex: 1, flexWrap: "wrap" },
   searchWrap: { position: "relative", width: "min(430px, 100%)", zIndex: 15 },
   searchBox: { minHeight: 46, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", border: `1px solid ${COLORS.border}`, borderRadius: 13, background: "#FFFFFF", boxShadow: "0 7px 22px rgba(16,24,40,.06)" },
