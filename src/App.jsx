@@ -100,9 +100,12 @@ export default function App() {
   const [syncState, setSyncState] = useState("idle");
   const [appError, setAppError] = useState("");
   const [desktopNotifications, setDesktopNotifications] = useState(() => localStorage.getItem("demaria-stock-notifications") === "on" && "Notification" in window && Notification.permission === "granted");
-  const [mainTab, setMainTab] = useState("b70");
+  const [mainTab, setMainTab] = useState("home");
   const [sub70, setSub70] = useState("racks");
   const [sub60, setSub60] = useState("envases");
+    const [subVirgo, setSubVirgo] = useState("corrugados");
+    const [warehouseMenuOpen, setWarehouseMenuOpen] = useState(true);
+    const [openWarehouse, setOpenWarehouse] = useState("b70");
   const [searchSku, setSearchSku] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchProduct, setSearchProduct] = useState(null);
@@ -462,21 +465,69 @@ export default function App() {
       {appError && <div style={styles.errorBanner}>{appError}</div>}
       {!canEdit && <div style={styles.viewerBanner}>Modo Viewer: puedes consultar y buscar, pero no modificar ubicaciones.</div>}
 
-      <nav style={styles.mainNav} aria-label="Navegación principal">
-        <Tab active={mainTab === "b70"} onClick={() => setMainTab("b70")}>Bodega 70</Tab>
-        <Tab active={mainTab === "b60"} onClick={() => setMainTab("b60")}>Bodega 60</Tab>
-        <Tab active={mainTab === "master"} onClick={() => setMainTab("master")}>Maestro de Productos</Tab>
-        {profile.role === "admin" && <><Tab active={mainTab === "admin"} onClick={() => setMainTab("admin")}>Administración</Tab><Tab active={mainTab === "notifications"} onClick={() => setMainTab("notifications")}>Notificaciones</Tab></>}
-      </nav>
-      <main style={styles.content}>
-        {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} focusLocation={focusLocation} />}
-        {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} canEdit={canEdit} focusLocation={focusLocation} />}
-        {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(location) => { setFocusLocation(location); if (location.target === "envases") { setMainTab("b60"); setSub60("envases"); } else { setMainTab("b70"); setSub70(location.target); } }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
-        {mainTab === "admin" && profile.role === "admin" && <AdminProfiles currentUserId={session.user.id} />}
-        {mainTab === "notifications" && profile.role === "admin" && <StockNotifications currentUserId={session.user.id} />}
-      </main>
+      <div style={styles.applicationBody}>
+        <aside style={styles.sideNav}>
+          <button type="button" onClick={() => setMainTab("home")} style={{ ...styles.sideNavRoot, ...(mainTab === "home" ? styles.sideNavActive : {}) }}><span>⌂</span><strong>Inicio</strong></button>
+          <button type="button" onClick={() => setWarehouseMenuOpen((value) => !value)} style={styles.sideNavRoot}><span>▦</span><strong>Bodegas</strong><b>{warehouseMenuOpen ? "⌃" : "⌄"}</b></button>
+          {warehouseMenuOpen && <div style={styles.sideTree}>
+            <SidebarWarehouse title="Bodega 70" open={openWarehouse === "b70"} onToggle={() => setOpenWarehouse(openWarehouse === "b70" ? "" : "b70")}>
+              <SidebarLink active={mainTab === "b70" && sub70 === "racks"} onClick={() => { setMainTab("b70"); setSub70("racks"); }}>Racks Selectivos</SidebarLink>
+              <SidebarLink active={mainTab === "b70" && sub70 === "drive"} onClick={() => { setMainTab("b70"); setSub70("drive"); }}>Racks Drive In</SidebarLink>
+              <SidebarLink active={mainTab === "b70" && sub70 === "altillo"} onClick={() => { setMainTab("b70"); setSub70("altillo"); }}>Altillo</SidebarLink>
+            </SidebarWarehouse>
+            <SidebarWarehouse title="Bodega 60" open={openWarehouse === "b60"} onToggle={() => setOpenWarehouse(openWarehouse === "b60" ? "" : "b60")}>
+              <SidebarLink active={mainTab === "b60" && sub60 === "envases"} onClick={() => { setMainTab("b60"); setSub60("envases"); }}>Envases</SidebarLink>
+              <SidebarLink active={mainTab === "b60" && sub60 === "adhesivas"} onClick={() => { setMainTab("b60"); setSub60("adhesivas"); }}>Etiquetas Adhesivas</SidebarLink>
+              <SidebarLink active={mainTab === "b60" && sub60 === "tc"} onClick={() => { setMainTab("b60"); setSub60("tc"); }}>Etiquetas TC</SidebarLink>
+              <SidebarLink active={mainTab === "b60" && sub60 === "drive60"} onClick={() => { setMainTab("b60"); setSub60("drive60"); }}>Racks Drive In</SidebarLink>
+            </SidebarWarehouse>
+            <SidebarWarehouse title="Bodega Virgo 2" open={openWarehouse === "virgo"} onToggle={() => setOpenWarehouse(openWarehouse === "virgo" ? "" : "virgo")}>
+              <SidebarLink active={mainTab === "virgo" && subVirgo === "corrugados"} onClick={() => { setMainTab("virgo"); setSubVirgo("corrugados"); }}>Corrugados</SidebarLink>
+              <SidebarLink active={mainTab === "virgo" && subVirgo === "corrosiva"} onClick={() => { setMainTab("virgo"); setSubVirgo("corrosiva"); }}>Bodega Corrosiva</SidebarLink>
+              <SidebarLink active={mainTab === "virgo" && subVirgo === "inflamable"} onClick={() => { setMainTab("virgo"); setSubVirgo("inflamable"); }}>Bodega Inflamable</SidebarLink>
+            </SidebarWarehouse>
+          </div>}
+          <div style={styles.sideNavDivider} />
+          <button type="button" onClick={() => setMainTab("master")} style={{ ...styles.sideNavRoot, ...(mainTab === "master" ? styles.sideNavActive : {}) }}><span>▤</span><strong>Maestro de Productos</strong></button>
+          {profile.role === "admin" && <><button type="button" onClick={() => setMainTab("admin")} style={{ ...styles.sideNavRoot, ...(mainTab === "admin" ? styles.sideNavActive : {}) }}><span>⚙</span><strong>Administración</strong></button><button type="button" onClick={() => setMainTab("notifications")} style={{ ...styles.sideNavRoot, ...(mainTab === "notifications" ? styles.sideNavActive : {}) }}><span>●</span><strong>Notificaciones</strong></button></>}
+        </aside>
+        <main style={styles.mainWorkspace}>
+          {mainTab === "home" && <HomeDashboard displayName={displayName} profile={profile} onNavigate={(target, sub) => { setMainTab(target); if (target === "b70") setSub70(sub); if (target === "b60") setSub60(sub); if (target === "virgo") setSubVirgo(sub); }} />}
+          {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} focusLocation={focusLocation} />}
+          {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} canEdit={canEdit} focusLocation={focusLocation} />}
+          {mainTab === "virgo" && <BodegaVirgo2 activeTab={subVirgo} onTabChange={setSubVirgo} />}
+          {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(location) => { setFocusLocation(location); if (location.target === "envases") { setMainTab("b60"); setSub60("envases"); } else { setMainTab("b70"); setSub70(location.target); } }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
+          {mainTab === "admin" && profile.role === "admin" && <AdminProfiles currentUserId={session.user.id} />}
+          {mainTab === "notifications" && profile.role === "admin" && <StockNotifications currentUserId={session.user.id} />}
+        </main>
+      </div>
     </div>
   );
+}
+
+function SidebarWarehouse({ title, open, onToggle, children }) {
+  return <div><button type="button" onClick={onToggle} style={styles.sideWarehouseButton}><span>{open ? "▾" : "▸"}</span><strong>{title}</strong></button>{open && <div style={styles.sideWarehouseChildren}>{children}</div>}</div>;
+}
+function SidebarLink({ active, onClick, children }) {
+  return <button type="button" onClick={onClick} style={{ ...styles.sideLink, ...(active ? styles.sideLinkActive : {}) }}>{children}</button>;
+}
+function HomeDashboard({ displayName, profile, onNavigate }) {
+  return <section style={styles.homeDashboard}>
+    <div style={styles.homeHero}>
+      <img src={`${import.meta.env.BASE_URL}home-hero.png`} alt="Áreas logísticas y bodegas Demaría" style={styles.homeHeroImage} />
+      <div style={styles.homeHeroOverlay}><span style={styles.homeKicker}>SISTEMA DE GESTIÓN DE BODEGAS</span><h1>Control visual de inventario y ubicaciones</h1><p>Bienvenido, {displayName}. Consulta bodegas, productos y movimientos desde un único lugar.</p></div>
+    </div>
+    <div style={styles.homeCards}>
+      <HomeCard code="70" title="Bodega 70" text="Racks Selectivos, Drive In y Altillo" onClick={() => onNavigate("b70","racks")} />
+      <HomeCard code="60" title="Bodega 60" text="Envases, etiquetas y Drive In" onClick={() => onNavigate("b60","envases")} />
+      <HomeCard code="V2" title="Bodega Virgo 2" text="Corrugados y productos especiales" onClick={() => onNavigate("virgo","corrugados")} />
+      <HomeCard code="MP" title="Maestro de Productos" text="Stock, palletizado y ubicaciones" onClick={() => onNavigate("master")} />
+      {profile.role === "admin" && <HomeCard code="NT" title="Notificaciones" text="Movimientos y alertas de stock" onClick={() => onNavigate("notifications")} />}
+    </div>
+  </section>;
+}
+function HomeCard({ code, title, text, onClick }) {
+  return <button type="button" onClick={onClick} style={styles.homeCard}><span style={styles.homeCardCode}>{code}</span><span><strong>{title}</strong><small>{text}</small></span><b>›</b></button>;
 }
 
 function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut, desktopNotifications, onToggleNotifications }) {
@@ -731,7 +782,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V7.2 anulaciones y alertas</span>
+        <span style={styles.status}>V7.3 portada y navegación lateral</span>
       </div>
       {children}
     </section>
@@ -742,12 +793,13 @@ function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells,
   return (
     <Section title="Bodega 70" description="Racks selectivos y almacenamiento compacto Drive In.">
       <SubNav
-        tabs={[{ id: "racks", label: "Racks Selectivos" }, { id: "drive", label: "Racks Drive In" }]}
+        tabs={[{ id: "racks", label: "Racks Selectivos" }, { id: "drive", label: "Racks Drive In" }, { id: "altillo", label: "Altillo" }]}
         activeTab={activeTab}
         onTabChange={onTabChange}
       />
       {activeTab === "racks" && <RacksSelectivos cells={rackCells} setCells={setRackCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} focusLocation={focusLocation} />}
       {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} focusLocation={focusLocation} />}
+        {activeTab === "altillo" && <Placeholder code="AL" title="Altillo" text="Área de almacenamiento en Altillo." />}
     </Section>
   );
 }
@@ -1277,9 +1329,9 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, sel
 function Bodega60({ activeTab, onTabChange, envaseCells, setEnvaseCells, canEdit, focusLocation }) {
   const tabs = [
     { id: "envases", label: "Envases" }, { id: "tc", label: "Etiquetas TC" },
-    { id: "adhesivas", label: "Etiquetas Adhesivas" }, { id: "film", label: "FILM" },
+    { id: "adhesivas", label: "Etiquetas Adhesivas" }, { id: "drive60", label: "Racks Drive In" },
   ];
-  const panels = { tc: ["TC", "Etiquetas TC", "Área de almacenamiento de etiquetas TC."], adhesivas: ["EA", "Etiquetas Adhesivas", "Área de almacenamiento de etiquetas adhesivas."], film: ["FI", "FILM", "Área de almacenamiento y control de film."] };
+  const panels = { tc: ["TC", "Etiquetas TC", "Área de almacenamiento de etiquetas TC."], adhesivas: ["EA", "Etiquetas Adhesivas", "Área de almacenamiento de etiquetas adhesivas."], drive60: ["DI", "Racks Drive In", "Área de almacenamiento compacto de Bodega 60."] };
   return <Section title="Bodega 60" description="Envases y materiales de empaque.">
     <SubNav tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} />
     {activeTab === "envases" ? <EnvasesLayout cells={envaseCells} setCells={setEnvaseCells} canEdit={canEdit} focusLocation={focusLocation} /> : <Placeholder code={panels[activeTab][0]} title={panels[activeTab][1]} text={panels[activeTab][2]} />}
@@ -1626,6 +1678,13 @@ function EnvaseStreet({ street, cells, setCells, canEdit, focusLocation, selecti
       })])}
     </div>
   </article>;
+}
+
+function BodegaVirgo2({ activeTab, onTabChange }) {
+  const tabs = [{ id: "corrugados", label: "Corrugados" }, { id: "corrosiva", label: "Bodega Corrosiva" }, { id: "inflamable", label: "Bodega Inflamable" }];
+  const panels = { corrugados: ["CO", "Corrugados", "Almacenamiento de materiales corrugados."], corrosiva: ["BC", "Bodega Corrosiva", "Área especial para materiales corrosivos."], inflamable: ["BI", "Bodega Inflamable", "Área especial para materiales inflamables."] };
+  const panel = panels[activeTab];
+  return <Section title="Bodega Virgo 2" description="Corrugados y almacenamiento de productos especiales."><SubNav tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} /><Placeholder code={panel[0]} title={panel[1]} text={panel[2]} /></Section>;
 }
 
 function Placeholder({ code, title, text }) {
@@ -2111,7 +2170,26 @@ const rackPlacements = {
 };
 
 const styles = {
-  operatorShell: { minHeight: "100vh", background: "#F2F6F7", color: COLORS.text },
+  applicationBody: { maxWidth: 1540, margin: "0 auto", display: "grid", gridTemplateColumns: "248px minmax(0,1fr)", gap: 18, alignItems: "start" },
+    sideNav: { position: "sticky", top: 14, minHeight: "calc(100vh - 40px)", padding: 10, display: "grid", alignContent: "start", gap: 5, border: `1px solid ${COLORS.border}`, borderRadius: 18, background: "#FFFFFF", boxShadow: "0 12px 32px rgba(16,24,40,.08)" },
+    sideNavRoot: { width: "100%", padding: "12px 13px", display: "grid", gridTemplateColumns: "24px minmax(0,1fr) auto", alignItems: "center", gap: 8, border: 0, borderRadius: 11, background: "transparent", color: "#344054", textAlign: "left", cursor: "pointer" },
+    sideNavActive: { background: "linear-gradient(135deg,#00C1C2,#009A9B)", color: "#FFFFFF", boxShadow: "0 6px 16px rgba(0,193,194,.22)" },
+    sideTree: { display: "grid", gap: 4 },
+    sideWarehouseButton: { width: "100%", padding: "9px 12px", display: "flex", alignItems: "center", gap: 7, border: 0, borderRadius: 9, background: "#F7FAFC", color: COLORS.text, textAlign: "left", cursor: "pointer" },
+    sideWarehouseChildren: { margin: "3px 0 7px 18px", paddingLeft: 9, display: "grid", gap: 3, borderLeft: `2px solid ${COLORS.border}` },
+    sideLink: { padding: "8px 10px", border: 0, borderRadius: 8, background: "transparent", color: COLORS.muted, textAlign: "left", fontSize: 11, cursor: "pointer" },
+    sideLinkActive: { background: "#E7FBFB", color: COLORS.turquoiseDark, fontWeight: 850 },
+    sideNavDivider: { height: 1, margin: "6px 4px", background: COLORS.border },
+    mainWorkspace: { minWidth: 0 },
+    homeDashboard: { display: "grid", gap: 16 },
+    homeHero: { position: "relative", minHeight: 510, overflow: "hidden", borderRadius: 22, background: "#071F2A", boxShadow: "0 18px 48px rgba(16,24,40,.18)" },
+    homeHeroImage: { width: "100%", height: "100%", minHeight: 510, display: "block", objectFit: "cover" },
+    homeHeroOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "44px 38px 34px", color: "#FFFFFF", background: "linear-gradient(0deg,rgba(4,27,39,.96),rgba(4,27,39,.12))" },
+    homeKicker: { color: COLORS.turquoise, fontSize: 11, fontWeight: 900, letterSpacing: ".16em" },
+    homeCards: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(225px,1fr))", gap: 11 },
+    homeCard: { padding: 14, display: "grid", gridTemplateColumns: "48px minmax(0,1fr) auto", alignItems: "center", gap: 11, border: `1px solid ${COLORS.border}`, borderRadius: 14, background: "#FFFFFF", color: COLORS.text, textAlign: "left", cursor: "pointer", boxShadow: "0 7px 18px rgba(16,24,40,.06)" },
+    homeCardCode: { width: 46, height: 46, display: "grid", placeItems: "center", borderRadius: 12, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 13, fontWeight: 900 },
+    operatorShell: { minHeight: "100vh", background: "#F2F6F7", color: COLORS.text },
   operatorHeader: { position: "sticky", top: 0, zIndex: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#071F2A", color: "#FFFFFF", boxShadow: "0 5px 18px rgba(7,31,42,.24)" },
   operatorBrand: { display: "block", color: COLORS.turquoise, fontSize: 22, fontWeight: 950, letterSpacing: ".06em" },
   operatorLogout: { padding: "9px 13px", border: "1px solid rgba(255,255,255,.35)", borderRadius: 10, background: "transparent", color: "#FFFFFF", fontWeight: 800 },
@@ -2155,7 +2233,7 @@ const styles = {
   notificationData: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 8, color: COLORS.muted, fontSize: 11 },
   reviewedBadge: { width: "fit-content", padding: "6px 9px", borderRadius: 999, background: "#ECFDF3", color: "#027A48", fontSize: 10, fontWeight: 850 },
   operatorEmptyLocation: { padding: 18, borderRadius: 14, background: "#FFFFFF", color: COLORS.muted, textAlign: "center" },
-  app: { minHeight: "100vh", padding: 28, background: COLORS.background, color: COLORS.text, fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
+  app: { minHeight: "100vh", padding: 24, background: COLORS.background, color: COLORS.text, fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
   header: { maxWidth: 1280, margin: "0 auto 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, flexWrap: "wrap" },
   eyebrow: { margin: "0 0 6px", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800, letterSpacing: ".16em" },
   title: { margin: 0, fontSize: "clamp(28px,4vw,42px)", lineHeight: 1.1 },
