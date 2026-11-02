@@ -507,36 +507,33 @@ export default function App() {
 }
 
 function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCells, onExit, onSignOut }) {
-  const [view, setView] = useState("location");
-  const [area, setArea] = useState("racks");
-  const [unit, setUnit] = useState(1);
-  const [level, setLevel] = useState(1);
-  const [position, setPosition] = useState(1);
+  const [view, setView] = useState("racks");
+  const [selectedRack, setSelectedRack] = useState(null);
+  const [columnStart, setColumnStart] = useState(1);
+  const [selectedCell, setSelectedCell] = useState(null);
   const [skuDraft, setSkuDraft] = useState("");
   const [currentProduct, setCurrentProduct] = useState(null);
+  const [driveStreet, setDriveStreet] = useState(1);
+  const [driveLevel, setDriveLevel] = useState(1);
+  const [driveDepth, setDriveDepth] = useState(1);
   const [searchSku, setSearchSku] = useState("");
   const [searchProduct, setSearchProduct] = useState(null);
-  const [searching, setSearching] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const cells = area === "racks" ? rackCells : driveCells;
-  const setCells = area === "racks" ? setRackCells : setDriveCells;
-  const maxUnit = area === "racks" ? 11 : 23;
-  const maxPosition = area === "racks" ? (RACKS.find((rack) => rack.number === Number(unit))?.positions || 6) : 5;
-  const key = `${unit}-${level}-${position}`;
-  const currentSku = String(cells[key] || "").trim();
+
+  const selectedKey = selectedCell ? `${selectedCell.unit}-${selectedCell.level}-${selectedCell.position}` : "";
+  const selectedCells = selectedCell?.area === "drive" ? driveCells : rackCells;
+  const selectedSetCells = selectedCell?.area === "drive" ? setDriveCells : setRackCells;
+  const currentSku = selectedKey ? String(selectedCells[selectedKey] || "").trim() : "";
 
   useEffect(() => {
-    if (position > maxPosition) setPosition(maxPosition);
-  }, [area, unit, maxPosition]);
-  useEffect(() => {
-    setSkuDraft(currentSku);
-    setMessage(""); setError("");
+    if (!selectedCell) { setSkuDraft(""); setCurrentProduct(null); return; }
+    setSkuDraft(currentSku); setMessage(""); setError("");
     if (!currentSku) { setCurrentProduct(null); return; }
     let cancelled = false;
     supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", currentSku).maybeSingle().then(({ data }) => { if (!cancelled) setCurrentProduct(data ?? null); });
     return () => { cancelled = true; };
-  }, [area, unit, level, position, currentSku]);
+  }, [selectedKey, currentSku]);
 
   async function validateSku(value) {
     if (!/^\d{8}$/.test(value)) return { error: "El SKU debe contener exactamente 8 números." };
@@ -544,74 +541,66 @@ function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCel
     if (result.error || !result.data) return { error: "El SKU no existe en el Maestro de Productos." };
     return { product: result.data };
   }
-  async function savePosition() {
-    setError(""); setMessage("");
-    const value = skuDraft.trim();
-    if (!value) return clearPosition();
+  async function saveSelectedCell() {
+    if (!selectedCell) return;
+    const value = skuDraft.trim(); setError(""); setMessage("");
+    if (!value) return clearSelectedCell();
     const validation = await validateSku(value);
     if (validation.error) return setError(validation.error);
     if (currentSku && currentSku !== value && !window.confirm(`La posición contiene ${currentSku}. ¿Reemplazar por ${value}?`)) return;
-    setCells((current) => ({ ...current, [key]: value }));
+    selectedSetCells((current) => ({ ...current, [selectedKey]: value }));
     setCurrentProduct(validation.product);
-    setMessage(`SKU ${value} guardado en ${locationLabel(area, unit, level, position)}.`);
+    setMessage(`SKU ${value} guardado.`);
   }
-  function clearPosition() {
-    if (currentSku && !window.confirm(`¿Vaciar ${locationLabel(area, unit, level, position)}?`)) return;
-    setCells((current) => { const next = { ...current }; delete next[key]; return next; });
+  function clearSelectedCell() {
+    if (!selectedCell) return;
+    if (currentSku && !window.confirm(`¿Vaciar ${touchLocationLabel(selectedCell)}?`)) return;
+    selectedSetCells((current) => { const next = { ...current }; delete next[selectedKey]; return next; });
     setSkuDraft(""); setCurrentProduct(null); setMessage("Posición liberada."); setError("");
   }
-  function movePosition(direction) {
-    let next = Number(position) + direction;
-    if (next < 1) next = maxPosition;
-    if (next > maxPosition) next = 1;
-    setPosition(next);
+  function selectRack(rackNumber) { setSelectedRack(rackNumber); setColumnStart(1); setSelectedCell(null); setView("rackDetail"); }
+  function selectCell(area, unit, level, position) { setSelectedCell({ area, unit, level, position }); setMessage(""); setError(""); }
+  function closeEditor(event) { if (!event.target.closest?.('[data-touch-cell="true"]') && !event.target.closest?.('[data-touch-editor="true"]')) setSelectedCell(null); }
+  function pageRack(direction) {
+    const rack = RACKS.find((item) => item.number === selectedRack);
+    const maxStart = Math.max(1, rack.positions - 1);
+    let next = columnStart + direction * 2;
+    if (next < 1) next = 1;
+    if (next > maxStart) next = maxStart;
+    setColumnStart(next); setSelectedCell(null);
   }
   async function searchProductBySku(event) {
-    event?.preventDefault(); setError(""); setMessage("");
-    const value = searchSku.trim();
-    const validation = await validateSku(value);
+    event?.preventDefault(); setError("");
+    const validation = await validateSku(searchSku.trim());
     if (validation.error) { setSearchProduct(null); return setError(validation.error); }
-    setSearching(false); setSearchProduct(validation.product);
+    setSearchProduct(validation.product);
   }
   const searchLocations = searchSku.trim() ? [
-    ...Object.entries(rackCells).filter(([, value]) => String(value || "").trim() === searchSku.trim()).map(([locationKey]) => { const [u,l,p] = locationKey.split("-"); return { area: "racks", unit: Number(u), level: Number(l), position: Number(p) }; }),
-    ...Object.entries(driveCells).filter(([, value]) => String(value || "").trim() === searchSku.trim()).map(([locationKey]) => { const [u,l,p] = locationKey.split("-"); return { area: "drive", unit: Number(u), level: Number(l), position: Number(p) }; }),
+    ...Object.entries(rackCells).filter(([, value]) => String(value || "").trim() === searchSku.trim()).map(([key]) => { const [unit,level,position] = key.split("-"); return { area: "racks", unit: Number(unit), level: Number(level), position: Number(position) }; }),
+    ...Object.entries(driveCells).filter(([, value]) => String(value || "").trim() === searchSku.trim()).map(([key]) => { const [unit,level,position] = key.split("-"); return { area: "drive", unit: Number(unit), level: Number(level), position: Number(position) }; }),
   ] : [];
-  function openLocation(item) { setArea(item.area); setUnit(item.unit); setLevel(item.level); setPosition(item.position); setView("location"); }
+  function openSearchLocation(item) { if (item.area === "racks") { selectRack(item.unit); setColumnStart(Math.floor((item.position - 1) / 2) * 2 + 1); } else { setDriveStreet(item.unit); setDriveLevel(item.level); setDriveDepth(item.position); setView("drive"); } setTimeout(() => selectCell(item.area,item.unit,item.level,item.position),0); }
 
-  return <div style={styles.touchShell}>
+  const rack = RACKS.find((item) => item.number === selectedRack);
+  const visiblePositions = rack ? [columnStart, columnStart + 1].filter((position) => position <= rack.positions) : [];
+  const levels = [3,2,1];
+
+  return <div style={styles.touchShell} onMouseDown={closeEditor}>
     <header style={styles.touchHeader}><img src={`${import.meta.env.BASE_URL}demaria-logo.png`} alt="Demaria 1896" style={styles.touchLogo} /><div style={styles.touchUser}><strong>{profile.display_name || "Usuario"}</strong><span>{profile.role === "admin" ? "Administrador" : "Editor"}</span></div><button type="button" onClick={onExit} style={styles.touchHeaderButton}>Escritorio</button><button type="button" onClick={onSignOut} style={styles.touchHeaderButton}>Salir</button></header>
     <main style={styles.touchMain}>
-      {view === "location" && <>
-        <section style={styles.touchIntro}><span>EDICIÓN TÁCTIL</span><h1>Editar una posición</h1><p>Selecciona la ubicación, revisa el producto y confirma el cambio.</p></section>
-        <div style={styles.touchAreaTabs}><button onClick={() => { setArea("racks"); setUnit(1); setPosition(1); }} style={area === "racks" ? styles.touchAreaActive : styles.touchAreaButton}>Racks Selectivos</button><button onClick={() => { setArea("drive"); setUnit(1); setPosition(1); }} style={area === "drive" ? styles.touchAreaActive : styles.touchAreaButton}>Drive In</button></div>
-        <section style={styles.touchLocationCard}>
-          <div style={styles.touchLocationTitle}><span>BODEGA 70</span><strong>{area === "racks" ? `Rack ${unit}` : `Calle ${String(unit).padStart(2,"0")}`} · Nivel {level} · P{position}</strong></div>
-          <div style={styles.touchSelectorGrid}><TouchSelect label={area === "racks" ? "Rack" : "Calle"} value={unit} onChange={setUnit} max={maxUnit} /><TouchSelect label="Nivel" value={level} onChange={setLevel} max={3} /><TouchSelect label="Posición" value={position} onChange={setPosition} max={maxPosition} /></div>
-          <div style={styles.touchPositionNavigator}><button type="button" onClick={() => movePosition(-1)}>‹ Anterior</button><button type="button" onClick={() => movePosition(1)}>Siguiente ›</button></div>
-        </section>
-        <section style={styles.touchProductCard}>
-          <label style={styles.touchField}>SKU de la posición<input inputMode="numeric" maxLength={8} value={skuDraft} onChange={(event) => setSkuDraft(event.target.value.replace(/\D/g,""))} placeholder="Escribe o escanea el SKU" style={styles.touchSkuInput} /></label>
-          <div style={styles.touchProductDetail}><span>Producto actual</span><strong>{currentProduct?.description || (currentSku ? "SKU sin descripción en Maestro" : "Posición vacía")}</strong>{currentProduct && <small>Stock {formatNumber(currentProduct.stock)} · Palletizado {formatNumber(currentProduct.units_per_pallet)}</small>}</div>
-          {error && <div style={styles.touchError}>{error}</div>}{message && <div style={styles.touchSuccess}>{message}</div>}
-          <div style={styles.touchActions}><button type="button" onClick={savePosition} style={styles.touchSaveButton}>Guardar SKU</button><button type="button" onClick={clearPosition} disabled={!currentSku} style={styles.touchClearButton}>Vaciar posición</button></div>
-        </section>
-      </>}
-      {view === "search" && <>
-        <section style={styles.touchIntro}><span>CONSULTA RÁPIDA</span><h1>Buscar SKU</h1><p>Encuentra todas sus posiciones y abre una para editarla.</p></section>
-        <form onSubmit={searchProductBySku} style={styles.touchSearchCard}><input inputMode="numeric" maxLength={8} value={searchSku} onChange={(event) => { setSearchSku(event.target.value.replace(/\D/g,"")); setSearchProduct(null); }} placeholder="Ingresa SKU de 8 dígitos" style={styles.touchSkuInput} /><button style={styles.touchSaveButton}>Buscar</button></form>
-        {error && <div style={styles.touchError}>{error}</div>}
-        {searchProduct && <section style={styles.touchSearchResult}><span>SKU {searchProduct.sku}</span><h2>{searchProduct.description}</h2><p>Stock {formatNumber(searchProduct.stock)} · Palletizado {formatNumber(searchProduct.units_per_pallet)}</p><strong>{searchLocations.length} posiciones encontradas</strong></section>}
-        <div style={styles.touchLocationList}>{searchLocations.map((item,index) => <button key={`${item.area}-${item.unit}-${item.level}-${item.position}-${index}`} onClick={() => openLocation(item)} style={styles.touchLocationResult}><span>Bodega 70 · {item.area === "racks" ? "Racks Selectivos" : "Drive In"}</span><strong>{locationLabel(item.area,item.unit,item.level,item.position)}</strong><b>Editar ›</b></button>)}</div>
-      </>}
+      {view === "racks" && <><section style={styles.touchIntro}><span>BODEGA 70</span><h1>Racks Selectivos</h1><p>Selecciona un rack para editar sus posiciones de dos columnas por pantalla.</p></section><div style={styles.touchRackOverview}>{RACKS.map((item) => { const occupied = Object.keys(rackCells).filter((key) => key.startsWith(`${item.number}-`) && String(rackCells[key] || "").trim()).length; return <button key={item.number} onClick={() => selectRack(item.number)} style={styles.touchRackCard}><span>RACK</span><strong>{item.number}</strong><small>{item.positions} columnas · {occupied} ocupadas</small><b>Abrir ›</b></button>; })}</div></>}
+      {view === "rackDetail" && rack && <><div style={styles.touchRackTopbar}><button type="button" onClick={() => { setView("racks"); setSelectedRack(null); setSelectedCell(null); }} style={styles.touchBackButton}>‹ Todos los racks</button><div><span>BODEGA 70 · RACKS SELECTIVOS</span><strong>Rack {rack.number}</strong></div></div><section style={styles.touchRackWindow}><div style={styles.touchRackColumnHeaders}><span>Nivel</span>{visiblePositions.map((pos) => <strong key={pos}>P{pos}</strong>)}</div>{levels.map((level) => <div key={level} style={styles.touchRackRow}><strong>N{level}</strong>{visiblePositions.map((pos) => { const key=`${rack.number}-${level}-${pos}`; const sku=String(rackCells[key]||"").trim(); const active=selectedCell?.area==="racks"&&selectedCell.unit===rack.number&&selectedCell.level===level&&selectedCell.position===pos; return <button data-touch-cell="true" key={key} onClick={() => selectCell("racks",rack.number,level,pos)} style={{...styles.touchRackCell,...(active?styles.touchRackCellActive:{}),...(sku?styles.touchRackCellFilled:{})}}><span>{sku || "VACÍO"}</span><small>{sku ? "Tocar para editar" : "Agregar SKU"}</small></button>; })}</div>)}</section><div style={styles.touchRackPager}><button onClick={() => pageRack(-1)} disabled={columnStart===1}>‹ Columnas anteriores</button><span>P{visiblePositions[0]}{visiblePositions[1] ? `–P${visiblePositions[1]}` : ""} de {rack.positions}</span><button onClick={() => pageRack(1)} disabled={visiblePositions.includes(rack.positions)}>Columnas siguientes ›</button></div></>}
+      {view === "drive" && <><section style={styles.touchIntro}><span>BODEGA 70</span><h1>Drive In</h1><p>Selecciona calle, nivel y profundidad para editar.</p></section><section style={styles.touchLocationCard}><div style={styles.touchSelectorGrid}><TouchSelect label="Calle" value={driveStreet} onChange={setDriveStreet} max={23}/><TouchSelect label="Nivel" value={driveLevel} onChange={setDriveLevel} max={3}/><TouchSelect label="Profundidad" value={driveDepth} onChange={setDriveDepth} max={5}/></div><button data-touch-cell="true" onClick={() => selectCell("drive",driveStreet,driveLevel,driveDepth)} style={styles.touchDriveOpen}>Abrir Calle {String(driveStreet).padStart(2,"0")} · N{driveLevel} · P{driveDepth}</button></section></>}
+      {view === "search" && <><section style={styles.touchIntro}><span>CONSULTA RÁPIDA</span><h1>Buscar SKU</h1><p>Encuentra ubicaciones y abre una celda para editar.</p></section><form onSubmit={searchProductBySku} style={styles.touchSearchCard}><input inputMode="numeric" maxLength={8} value={searchSku} onChange={(event)=>{setSearchSku(event.target.value.replace(/\D/g,""));setSearchProduct(null);}} placeholder="SKU de 8 dígitos" style={styles.touchSkuInput}/><button style={styles.touchSaveButton}>Buscar</button></form>{error&&<div style={styles.touchError}>{error}</div>}{searchProduct&&<section style={styles.touchSearchResult}><span>SKU {searchProduct.sku}</span><h2>{searchProduct.description}</h2><p>Stock {formatNumber(searchProduct.stock)} · Palletizado {formatNumber(searchProduct.units_per_pallet)}</p><strong>{searchLocations.length} posiciones</strong></section>}<div style={styles.touchLocationList}>{searchLocations.map((item,index)=><button key={index} onClick={()=>openSearchLocation(item)} style={styles.touchLocationResult}><span>{item.area==="racks"?"Racks Selectivos":"Drive In"}</span><strong>{touchLocationLabel(item)}</strong><b>Editar ›</b></button>)}</div></>}
     </main>
-    <nav style={styles.touchBottomNav}><button onClick={() => setView("location")} style={view === "location" ? styles.touchNavActive : styles.touchNavButton}><span>▦</span>Posición</button><button onClick={() => setView("search")} style={view === "search" ? styles.touchNavActive : styles.touchNavButton}><span>⌕</span>Buscar SKU</button></nav>
+    {selectedCell && <section data-touch-editor="true" style={styles.touchBottomSheet}><div style={styles.touchSheetHandle}/><div style={styles.touchSheetHeader}><div><span>{selectedCell.area === "racks" ? "RACKS SELECTIVOS" : "DRIVE IN"}</span><strong>{touchLocationLabel(selectedCell)}</strong></div><button onClick={() => setSelectedCell(null)}>×</button></div><label style={styles.touchField}>SKU<input autoFocus inputMode="numeric" maxLength={8} value={skuDraft} onChange={(event)=>setSkuDraft(event.target.value.replace(/\D/g,""))} placeholder="Ingresa SKU" style={styles.touchSkuInput}/></label><div style={styles.touchProductDetail}><span>Producto actual</span><strong>{currentProduct?.description || (currentSku ? "SKU sin descripción" : "Posición vacía")}</strong>{currentProduct&&<small>Stock {formatNumber(currentProduct.stock)} · Palletizado {formatNumber(currentProduct.units_per_pallet)}</small>}</div>{error&&<div style={styles.touchError}>{error}</div>}{message&&<div style={styles.touchSuccess}>{message}</div>}<div style={styles.touchActions}><button onClick={saveSelectedCell} style={styles.touchSaveButton}>Guardar / modificar</button><button onClick={clearSelectedCell} disabled={!currentSku} style={styles.touchClearButton}>Borrar SKU</button></div></section>}
+    <nav style={styles.touchBottomNav}><button onClick={()=>{setView("racks");setSelectedCell(null);}} style={["racks","rackDetail"].includes(view)?styles.touchNavActive:styles.touchNavButton}><span>▦</span>Racks</button><button onClick={()=>{setView("drive");setSelectedCell(null);}} style={view==="drive"?styles.touchNavActive:styles.touchNavButton}><span>≡</span>Drive In</button><button onClick={()=>{setView("search");setSelectedCell(null);}} style={view==="search"?styles.touchNavActive:styles.touchNavButton}><span>⌕</span>Buscar</button></nav>
   </div>;
 }
-function TouchSelect({ label, value, onChange, max }) {
-  return <label style={styles.touchField}>{label}<select value={value} onChange={(event) => onChange(Number(event.target.value))} style={styles.touchSelect}>{Array.from({ length: max }, (_, index) => index + 1).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>;
-}
-function locationLabel(area, unit, level, position) { return area === "racks" ? `Rack ${unit} · Nivel ${level} · P${position}` : `Calle ${String(unit).padStart(2,"0")} · Nivel ${level} · P${position}`; }
+function TouchSelect({ label, value, onChange, max }) { return <label style={styles.touchField}>{label}<select value={value} onChange={(event)=>onChange(Number(event.target.value))} style={styles.touchSelect}>{Array.from({length:max},(_,index)=>index+1).map((item)=><option key={item}>{item}</option>)}</select></label>; }
+function touchLocationLabel(item) { return item.area === "racks" ? `Rack ${item.unit} · Nivel ${item.level} · P${item.position}` : `Calle ${String(item.unit).padStart(2,"0")} · Nivel ${item.level} · P${item.position}`; }
+
+
 
 function SidebarWarehouse({ title, open, onToggle, children }) {
   return <div><button type="button" onClick={onToggle} style={styles.sideWarehouseButton}><span>{open ? "▾" : "▸"}</span><strong>{title}</strong></button>{open && <div style={styles.sideWarehouseChildren}>{children}</div>}</div>;
@@ -883,7 +872,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V8.0 prototipo táctil</span>
+        <span style={styles.status}>V8.1 racks táctiles paginados</span>
       </div>
       {children}
     </section>
@@ -2277,6 +2266,22 @@ const styles = {
     touchUser: { minWidth: 0, display: "grid", gap: 2, fontSize: 11 },
     touchHeaderButton: { padding: "9px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#FFFFFF", color: COLORS.text, fontSize: 10, fontWeight: 800 },
     touchMain: { width: "min(100%,760px)", margin: "0 auto", padding: "18px 13px 24px", display: "grid", gap: 14 },
+    touchRackOverview: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
+    touchRackCard: { minHeight: 118, padding: 14, display: "grid", gap: 3, border: `1px solid ${COLORS.border}`, borderRadius: 15, background: "#FFFFFF", color: COLORS.text, textAlign: "left", boxShadow: "0 7px 18px rgba(16,24,40,.07)" },
+    touchRackTopbar: { display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", alignItems: "center", gap: 12 },
+    touchBackButton: { minHeight: 44, padding: "0 12px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 10, background: "#E7FBFB", color: COLORS.turquoiseDark, fontWeight: 850 },
+    touchRackWindow: { padding: 10, display: "grid", gap: 6, border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: 16, background: "#FFFFFF", overflow: "hidden" },
+    touchRackColumnHeaders: { display: "grid", gridTemplateColumns: "52px repeat(2,minmax(0,1fr))", gap: 6, textAlign: "center", color: COLORS.turquoiseDark },
+    touchRackRow: { display: "grid", gridTemplateColumns: "52px repeat(2,minmax(0,1fr))", gap: 6, alignItems: "stretch" },
+    touchRackCell: { minHeight: 78, padding: 8, display: "grid", placeItems: "center", gap: 4, border: `2px solid ${COLORS.border}`, borderRadius: 11, background: "#F8FAFC", color: COLORS.muted, fontSize: 12, fontWeight: 850 },
+    touchRackCellFilled: { background: "#E7FBFB", color: COLORS.text, borderColor: COLORS.turquoise },
+    touchRackCellActive: { borderColor: "#F59E0B", background: "#FFF3BF", boxShadow: "0 0 0 3px rgba(245,158,11,.22)" },
+    touchRackPager: { display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 8 },
+    touchDriveOpen: { minHeight: 58, border: 0, borderRadius: 12, background: COLORS.turquoiseDark, color: "#FFFFFF", fontSize: 15, fontWeight: 900 },
+    touchBottomSheet: { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 60, maxHeight: "82vh", padding: "8px 16px calc(18px + env(safe-area-inset-bottom))", display: "grid", gap: 12, overflowY: "auto", borderRadius: "22px 22px 0 0", background: "#FFFFFF", boxShadow: "0 -18px 48px rgba(16,24,40,.24)" },
+    touchSheetHandle: { width: 42, height: 5, margin: "0 auto 2px", borderRadius: 999, background: "#D0D5DD" },
+    touchSheetHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 },
+
     touchIntro: { display: "grid", gap: 4 },
     touchAreaTabs: { display: "grid", gridTemplateColumns: "1fr 1fr", padding: 4, gap: 5, borderRadius: 13, background: "#DDE6E9" },
     touchAreaButton: { padding: 13, border: 0, borderRadius: 10, background: "transparent", color: COLORS.muted, fontSize: 14, fontWeight: 850 },
@@ -2299,7 +2304,7 @@ const styles = {
     touchSearchResult: { padding: 15, display: "grid", gap: 5, borderRadius: 16, background: "linear-gradient(135deg,#071F2A,#0B3B4A)", color: "#FFFFFF" },
     touchLocationList: { display: "grid", gap: 8 },
     touchLocationResult: { padding: 14, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 4, border: `1px solid ${COLORS.turquoise}`, borderRadius: 13, background: "#FFFFFF", color: COLORS.text, textAlign: "left" },
-    touchBottomNav: { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40, padding: "8px 12px calc(8px + env(safe-area-inset-bottom))", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, borderTop: `1px solid ${COLORS.border}`, background: "rgba(255,255,255,.96)", backdropFilter: "blur(12px)" },
+    touchBottomNav: { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40, padding: "8px 12px calc(8px + env(safe-area-inset-bottom))", display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, borderTop: `1px solid ${COLORS.border}`, background: "rgba(255,255,255,.96)", backdropFilter: "blur(12px)" },
     touchNavButton: { minHeight: 52, display: "grid", placeItems: "center", gap: 2, border: 0, borderRadius: 11, background: "transparent", color: COLORS.muted, fontWeight: 800 },
     touchNavActive: { minHeight: 52, display: "grid", placeItems: "center", gap: 2, border: 0, borderRadius: 11, background: "#E7FBFB", color: COLORS.turquoiseDark, fontWeight: 900 },
     touchModeButton: { padding: "7px 9px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 8, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 9, fontWeight: 850, cursor: "pointer" },
