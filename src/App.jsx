@@ -91,6 +91,27 @@ const ENV_MAP_BLOCKS = [
 ];
 
 
+function resolveEnvaseStreets(layoutConfig = {}) {
+  const base = ENVASE_STREETS.map((street) => {
+    const override = layoutConfig[street.id];
+    if (!override) return { ...street, blocked: street.blocked || [] };
+    const footprints = Number(override.footprints) || street.footprints;
+    const levels = Number(override.levels) || street.levels;
+    const blocked = Array.isArray(override.blocked) ? override.blocked : [];
+    return { ...street, sku: override.sku || street.sku, streetOrder: override.streetOrder || street.streetOrder, zone: override.zone || street.zone, footprints, levels, blocked, isDeleted: Boolean(override.isDeleted), capacity: footprints * levels - blocked.length };
+  }).filter((street) => !street.isDeleted);
+  const custom = Object.entries(layoutConfig).filter(([id, item]) => item.isCustom && !item.isDeleted && !ENVASE_STREETS.some((street) => street.id === Number(id))).map(([id, item]) => {
+    const footprints = Math.max(1, Number(item.footprints) || 1);
+    const levels = Math.max(1, Number(item.levels) || 1);
+    const blocked = Array.isArray(item.blocked) ? item.blocked : [];
+    return { id: Number(id), sku: String(item.sku || "").trim(), streetOrder: Number(item.streetOrder) || 1, zone: item.zone || "central", footprints, levels, blocked, capacity: footprints * levels - blocked.length, isCustom: true };
+  });
+  return [...base, ...custom].sort((a, b) => a.sku.localeCompare(b.sku) || a.streetOrder - b.streetOrder);
+}
+function envaseCapacityBySku(streets) {
+  return streets.reduce((acc, street) => { acc[street.sku] = (acc[street.sku] || 0) + Number(street.capacity || 0); return acc; }, {});
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -116,6 +137,9 @@ export default function App() {
   const [rackCells, setRackCells] = useState({});
   const [driveCells, setDriveCells] = useState({});
   const [envaseCells, setEnvaseCells] = useState({});
+  const [envaseLayoutConfig, setEnvaseLayoutConfig] = useState({});
+  const effectiveEnvaseStreets = resolveEnvaseStreets(envaseLayoutConfig);
+  const effectiveEnvaseCapacity = envaseCapacityBySku(effectiveEnvaseStreets);
   const hydratedRef = useRef(false);
   const previousRackRef = useRef({});
   const previousDriveRef = useRef({});
@@ -173,18 +197,21 @@ export default function App() {
       setDataLoading(true);
       setAppError("");
 
-      const [profileResult, locationsResult] = await Promise.all([
+      const [profileResult, locationsResult, envaseConfigResult] = await Promise.all([
         supabase.from("profiles").select("display_name, role, can_adjust_stock").eq("id", session.user.id).single(),
         supabase
           .from("warehouse_locations")
           .select("area, unit_number, level, position, sku")
           .in("warehouse", ["70", "60"])
           .in("area", ["racks_selectivos", "drive_in", "envases"]),
+        supabase.from("envase_layout_config").select("street_id, footprints, levels, blocked_positions, sku, street_order, zone, is_custom, is_deleted"),
       ]);
 
       if (cancelled) return;
       if (profileResult.error) setAppError(profileResult.error.message);
       if (locationsResult.error) setAppError(locationsResult.error.message);
+      if (envaseConfigResult.error) setAppError(envaseConfigResult.error.message);
+      if (!envaseConfigResult.error) setEnvaseLayoutConfig(Object.fromEntries((envaseConfigResult.data || []).map((row) => [row.street_id, { footprints: row.footprints, levels: row.levels, blocked: Array.isArray(row.blocked_positions) ? row.blocked_positions : [], sku: row.sku, streetOrder: row.street_order, zone: row.zone, isCustom: row.is_custom, isDeleted: row.is_deleted }])));
 
       setProfile(profileResult.data ?? { display_name: session.user.email, role: "viewer" });
 
@@ -343,7 +370,9 @@ export default function App() {
     };
   }, [searchSku, session?.user?.id]);
 
-  const searchAssigned = searchResults.length;
+  const searchRackDriveAssigned = searchResults.filter((item) => item.target !== "envases").length;
+  const searchEnvaseAssigned = effectiveEnvaseCapacity[searchSku.trim()] ?? searchResults.filter((item) => item.target === "envases").length;
+  const searchAssigned = searchRackDriveAssigned + searchEnvaseAssigned;
   const searchStock = Number(searchProduct?.stock) || 0;
   const searchUnitsPerPallet = Number(searchProduct?.units_per_pallet) || 0;
   const searchPallets = searchUnitsPerPallet > 0 ? searchStock / searchUnitsPerPallet : 0;
@@ -372,8 +401,8 @@ export default function App() {
   const displayName = profile.display_name || session.user.email || "Usuario";
   const initials = displayName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const roleLabel = profile.role === "admin" ? "Administrador" : profile.role === "editor" ? "Editor" : profile.role === "operator" ? "Operador" : "Viewer";
-  if (profile.role === "operator") return <OperatorMobile profile={profile} rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} onSignOut={() => supabase.auth.signOut()} desktopNotifications={desktopNotifications} onToggleNotifications={toggleDesktopNotifications} />;
-  if (canEdit && touchMode) return <TouchEditor profile={profile} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} onExit={() => { localStorage.setItem("demaria-desktop-mode", "on"); setTouchMode(false); }} onSignOut={() => supabase.auth.signOut()} />;
+  if (profile.role === "operator") return <OperatorMobile profile={profile} rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} envaseStreets={effectiveEnvaseStreets} onSignOut={() => supabase.auth.signOut()} desktopNotifications={desktopNotifications} onToggleNotifications={toggleDesktopNotifications} />;
+  if (canEdit && touchMode) return <TouchEditor profile={profile} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} envaseStreets={effectiveEnvaseStreets} onExit={() => { localStorage.setItem("demaria-desktop-mode", "on"); setTouchMode(false); }} onSignOut={() => supabase.auth.signOut()} />;
 
   return (
     <div
@@ -495,9 +524,9 @@ export default function App() {
         <main style={styles.mainWorkspace}>
           {mainTab === "home" && <HomeDashboard displayName={displayName} profile={profile} onNavigate={(target, sub) => { setMainTab(target); if (target === "b70") setSub70(sub); if (target === "b60") setSub60(sub); if (target === "virgo") setSubVirgo(sub); }} />}
           {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} focusLocation={focusLocation} />}
-          {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} canEdit={canEdit} focusLocation={focusLocation} />}
+          {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} envaseLayoutConfig={envaseLayoutConfig} setEnvaseLayoutConfig={setEnvaseLayoutConfig} canEdit={canEdit} focusLocation={focusLocation} />}
           {mainTab === "virgo" && <BodegaVirgo2 activeTab={subVirgo} onTabChange={setSubVirgo} />}
-          {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(location) => { setFocusLocation(location); if (location.target === "envases") { setMainTab("b60"); setSub60("envases"); } else { setMainTab("b70"); setSub70(location.target); } }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
+          {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} envaseStreets={effectiveEnvaseStreets} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(location) => { setFocusLocation(location); if (location.target === "envases") { setMainTab("b60"); setSub60("envases"); } else { setMainTab("b70"); setSub70(location.target); } }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
           {mainTab === "admin" && profile.role === "admin" && <AdminProfiles currentUserId={session.user.id} />}
           {mainTab === "notifications" && profile.role === "admin" && <StockNotifications currentUserId={session.user.id} />}
         </main>
@@ -506,7 +535,7 @@ export default function App() {
   );
 }
 
-function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCells, envaseCells, setEnvaseCells, onExit, onSignOut }) {
+function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCells, envaseCells, setEnvaseCells, envaseStreets, onExit, onSignOut }) {
   const [view, setView] = useState("racks");
   const [selectedRack, setSelectedRack] = useState(null);
   const [columnStart, setColumnStart] = useState(1);
@@ -529,7 +558,7 @@ function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCel
   const currentSku = selectedKey ? String(selectedCells[selectedKey] || "").trim() : "";
 
   useEffect(() => {
-    const skus = [...new Set([...Object.values(rackCells), ...Object.values(driveCells), ...Object.values(envaseCells), ...ENVASE_STREETS.map((street) => street.sku)].map((value) => String(value || "").trim()).filter(Boolean))];
+    const skus = [...new Set([...Object.values(rackCells), ...Object.values(driveCells), ...Object.values(envaseCells), ...envaseStreets.map((street) => street.sku)].map((value) => String(value || "").trim()).filter(Boolean))];
     if (!skus.length) { setTouchProducts({}); return; }
     let cancelled = false;
     supabase.from("products").select("sku, description, stock, units_per_pallet").in("sku", skus).then(({ data, error }) => {
@@ -581,7 +610,7 @@ function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCel
     setColumnStart(next); setSelectedCell(null);
   }
   function envasePositionsForSku(sku) {
-    const streets = ENVASE_STREETS.filter((street) => street.sku === sku);
+    const streets = envaseStreets.filter((street) => street.sku === sku);
     const positions = [];
     streets.forEach((street) => {
       for (let position = 1; position <= street.footprints; position += 1) {
@@ -635,7 +664,7 @@ function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCel
       {view === "racks" && <><section style={styles.touchIntro}><span>BODEGA 70</span><h1>Racks Selectivos</h1><p>Selecciona un rack para editar sus posiciones de dos columnas por pantalla.</p></section><div style={styles.touchRackOverview}>{RACKS.map((item) => { const total = item.positions * 3; const assigned = Object.keys(rackCells).filter((key) => key.startsWith(`${item.number}-`) && String(rackCells[key] || "").trim()).length; const free = Math.max(total - assigned, 0); return <button key={item.number} onClick={() => selectRack(item.number)} style={styles.touchRackCard}><strong style={styles.touchRackCardTitle}>Rack {item.number}</strong><div style={styles.touchRackMetrics}><span><small>Total de posiciones</small><b>{total}</b></span><span><small>Posiciones asignadas</small><b>{assigned}</b></span><span><small>Posiciones libres</small><b style={free > 0 ? styles.touchRackFreeValue : styles.touchRackFullValue}>{free}</b></span></div><b style={styles.touchRackOpen}>Abrir ›</b></button>; })}</div></>}
       {view === "rackDetail" && rack && <><div style={styles.touchRackTopbar}><button type="button" onClick={() => { setView("racks"); setSelectedRack(null); setSelectedCell(null); }} style={styles.touchBackButton}>‹ Todos los racks</button><div><span>BODEGA 70 · RACKS SELECTIVOS</span><strong>Rack {rack.number}</strong></div></div><section style={styles.touchRackWindow}><div style={styles.touchRackColumnHeaders}><span>Nivel</span>{visiblePositions.map((pos) => <strong key={pos}>P{pos}</strong>)}</div>{levels.map((level) => <div key={level} style={styles.touchRackRow}><strong>N{level}</strong>{visiblePositions.map((pos) => { const key=`${rack.number}-${level}-${pos}`; const sku=String(rackCells[key]||"").trim(); const active=selectedCell?.area==="racks"&&selectedCell.unit===rack.number&&selectedCell.level===level&&selectedCell.position===pos; const description = sku ? touchProducts[sku]?.description || "Sin descripción" : "Agregar SKU"; return <button data-touch-cell="true" key={key} onClick={() => selectCell("racks",rack.number,level,pos)} style={{...styles.touchRackCell,...(active?styles.touchRackCellActive:{}),...(sku?styles.touchRackCellFilled:{})}}><span>{sku || "VACÍO"}</span><small style={styles.touchRackCellDescription}>{description}</small></button>; })}</div>)}</section><div style={styles.touchRackPager}><button onClick={() => pageRack(-1)} disabled={columnStart===1}>‹ Columnas anteriores</button><span>P{visiblePositions[0]}{visiblePositions[1] ? `–P${visiblePositions[1]}` : ""} de {rack.positions}</span><button onClick={() => pageRack(1)} disabled={visiblePositions.includes(rack.positions)}>Columnas siguientes ›</button></div></>}
       {view === "drive" && <><section style={styles.touchIntro}><span>BODEGA 70</span><h1>Drive In</h1><p>Selecciona calle, nivel y profundidad para editar.</p></section><section style={styles.touchLocationCard}><div style={styles.touchSelectorGrid}><TouchSelect label="Calle" value={driveStreet} onChange={setDriveStreet} max={23}/><TouchSelect label="Nivel" value={driveLevel} onChange={setDriveLevel} max={3}/><TouchSelect label="Profundidad" value={driveDepth} onChange={setDriveDepth} max={5}/></div><button data-touch-cell="true" onClick={() => selectCell("drive",driveStreet,driveLevel,driveDepth)} style={styles.touchDriveOpen}>Abrir Calle {String(driveStreet).padStart(2,"0")} · N{driveLevel} · P{driveDepth}</button></section></>}
-      {view === "envases" && <><section style={styles.touchIntro}><span>BODEGA 60</span><h1>Envases</h1><p>Consulta la capacidad asignada y ajusta el stock en pallets.</p></section><div style={styles.touchEnvaseList}>{[...new Set(ENVASE_STREETS.map((street) => street.sku))].sort((a,b) => Number(a)-Number(b)).map((sku) => { const assigned = envasePositionsForSku(sku).length; const product = touchProducts[sku]; const stock = Number(product?.stock) || 0; const unitsPerPallet = Number(product?.units_per_pallet) || 0; const palletsEquivalent = unitsPerPallet > 0 ? stock / unitsPerPallet : 0; const occupied = Math.ceil(palletsEquivalent); const free = Math.max(assigned - occupied, 0); const utilization = assigned > 0 && unitsPerPallet > 0 ? palletsEquivalent / assigned * 100 : 0; const description = product?.description || "Sin descripción en el Maestro"; return <article key={sku} style={{ ...styles.touchEnvaseSkuCard, ...(utilization > 100 ? styles.overstockPanel : {}) }}><div style={styles.touchEnvaseSkuHead}><div><strong>{sku}</strong><p>{description}</p></div>{utilization > 100 ? <OverstockMark compact /> : <span>{utilization.toFixed(1)}%</span>}</div><div style={styles.touchEnvaseMetrics}><div><small>Posiciones asignadas</small><b>{assigned}</b></div><div><small>Stock</small><b>{formatNumber(stock)}</b></div><div><small>Pallets equivalentes</small><b>{unitsPerPallet > 0 ? palletsEquivalent.toFixed(2) : "—"}</b></div><div><small>Posiciones ocupadas</small><b>{unitsPerPallet > 0 ? occupied : "—"}</b></div><div><small>Posiciones libres</small><b style={free > 0 ? styles.touchRackFreeValue : styles.touchRackFullValue}>{unitsPerPallet > 0 ? free : "—"}</b></div><div><small>Palletizado</small><b>{unitsPerPallet > 0 ? formatNumber(unitsPerPallet) : "Sin registro"}</b></div></div><div style={styles.touchEnvaseAdjust}><button type="button" style={styles.touchEnvaseMinus} onClick={() => adjustEnvaseStock(sku,-1)} disabled={stock <= 0 || unitsPerPallet <= 0} aria-label={`Disminuir stock de ${sku}`}>−</button><label style={styles.touchEnvaseInputLabel}><span>Pallets</span><input style={styles.touchEnvaseInput} inputMode="numeric" value={envasePalletInputs[sku] || ""} onChange={(event) => setEnvasePalletInput(sku,event.target.value)} placeholder="1" /></label><button type="button" style={styles.touchEnvasePlus} onClick={() => adjustEnvaseStock(sku,1)} disabled={unitsPerPallet <= 0} aria-label={`Aumentar stock de ${sku}`}>+</button></div></article>; })}</div></>}
+      {view === "envases" && <><section style={styles.touchIntro}><span>BODEGA 60</span><h1>Envases</h1><p>Consulta la capacidad asignada y ajusta el stock en pallets.</p></section><div style={styles.touchEnvaseList}>{[...new Set(envaseStreets.map((street) => street.sku))].sort((a,b) => Number(a)-Number(b)).map((sku) => { const assigned = envasePositionsForSku(sku).length; const product = touchProducts[sku]; const stock = Number(product?.stock) || 0; const unitsPerPallet = Number(product?.units_per_pallet) || 0; const palletsEquivalent = unitsPerPallet > 0 ? stock / unitsPerPallet : 0; const occupied = Math.ceil(palletsEquivalent); const free = Math.max(assigned - occupied, 0); const utilization = assigned > 0 && unitsPerPallet > 0 ? palletsEquivalent / assigned * 100 : 0; const description = product?.description || "Sin descripción en el Maestro"; return <article key={sku} style={{ ...styles.touchEnvaseSkuCard, ...(utilization > 100 ? styles.overstockPanel : {}) }}><div style={styles.touchEnvaseSkuHead}><div><strong>{sku}</strong><p>{description}</p></div>{utilization > 100 ? <OverstockMark compact /> : <span>{utilization.toFixed(1)}%</span>}</div><div style={styles.touchEnvaseMetrics}><div><small>Posiciones asignadas</small><b>{assigned}</b></div><div><small>Stock</small><b>{formatNumber(stock)}</b></div><div><small>Pallets equivalentes</small><b>{unitsPerPallet > 0 ? palletsEquivalent.toFixed(2) : "—"}</b></div><div><small>Posiciones ocupadas</small><b>{unitsPerPallet > 0 ? occupied : "—"}</b></div><div><small>Posiciones libres</small><b style={free > 0 ? styles.touchRackFreeValue : styles.touchRackFullValue}>{unitsPerPallet > 0 ? free : "—"}</b></div><div><small>Palletizado</small><b>{unitsPerPallet > 0 ? formatNumber(unitsPerPallet) : "Sin registro"}</b></div></div><div style={styles.touchEnvaseAdjust}><button type="button" style={styles.touchEnvaseMinus} onClick={() => adjustEnvaseStock(sku,-1)} disabled={stock <= 0 || unitsPerPallet <= 0} aria-label={`Disminuir stock de ${sku}`}>−</button><label style={styles.touchEnvaseInputLabel}><span>Pallets</span><input style={styles.touchEnvaseInput} inputMode="numeric" value={envasePalletInputs[sku] || ""} onChange={(event) => setEnvasePalletInput(sku,event.target.value)} placeholder="1" /></label><button type="button" style={styles.touchEnvasePlus} onClick={() => adjustEnvaseStock(sku,1)} disabled={unitsPerPallet <= 0} aria-label={`Aumentar stock de ${sku}`}>+</button></div></article>; })}</div></>}
       {view === "search" && <><section style={styles.touchIntro}><span>CONSULTA RÁPIDA</span><h1>Buscar SKU</h1><p>Encuentra ubicaciones y abre una celda para editar.</p></section><form onSubmit={searchProductBySku} style={styles.touchSearchCard}><input inputMode="numeric" maxLength={8} value={searchSku} onChange={(event)=>{setSearchSku(event.target.value.replace(/\D/g,""));setSearchProduct(null);}} placeholder="SKU de 8 dígitos" style={styles.touchSkuInput}/><button style={styles.touchSaveButton}>Buscar</button></form>{error&&<div style={styles.touchError}>{error}</div>}{searchProduct&&<section style={styles.touchSearchResult}><span>SKU {searchProduct.sku}</span><h2>{searchProduct.description}</h2><p>Stock {formatNumber(searchProduct.stock)} · Palletizado {formatNumber(searchProduct.units_per_pallet)}</p><strong>{searchLocations.length} posiciones</strong></section>}<div style={styles.touchLocationList}>{searchLocations.map((item,index)=><button key={index} onClick={()=>openSearchLocation(item)} style={styles.touchLocationResult}><span>{item.area==="racks"?"Racks Selectivos":"Drive In"}</span><strong>{touchLocationLabel(item)}</strong><b>Editar ›</b></button>)}</div></>}
     </main>
     {selectedCell && <section data-touch-editor="true" style={styles.touchBottomSheet}><div style={styles.touchSheetHandle}/><div style={styles.touchSheetHeader}><div><span>{selectedCell.area === "racks" ? "RACKS SELECTIVOS" : "DRIVE IN"}</span><strong>{touchLocationLabel(selectedCell)}</strong></div><button onClick={() => setSelectedCell(null)}>×</button></div><label style={styles.touchField}>SKU<input autoFocus inputMode="numeric" maxLength={8} value={skuDraft} onChange={(event)=>setSkuDraft(event.target.value.replace(/\D/g,""))} placeholder="Ingresa SKU" style={styles.touchSkuInput}/></label><div style={styles.touchProductDetail}><span>Producto actual</span><strong>{currentProduct?.description || (currentSku ? "SKU sin descripción" : "Posición vacía")}</strong>{currentProduct&&<small>Stock {formatNumber(currentProduct.stock)} · Palletizado {formatNumber(currentProduct.units_per_pallet)}</small>}</div>{error&&<div style={styles.touchError}>{error}</div>}{message&&<div style={styles.touchSuccess}>{message}</div>}<div style={styles.touchActions}><button onClick={saveSelectedCell} style={styles.touchSaveButton}>Guardar / modificar</button><button onClick={clearSelectedCell} disabled={!currentSku} style={styles.touchClearButton}>Borrar SKU</button></div></section>}
@@ -665,7 +694,7 @@ function HomeDashboard() {
 }
 
 
-function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut, desktopNotifications, onToggleNotifications }) {
+function OperatorMobile({ profile, rackCells, driveCells, envaseCells, envaseStreets, onSignOut, desktopNotifications, onToggleNotifications }) {
   const [sku, setSku] = useState("");
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -684,7 +713,9 @@ function OperatorMobile({ profile, rackCells, driveCells, envaseCells, onSignOut
     ...Object.entries(driveCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [street, level, depth] = key.split("-"); return { warehouse: "Bodega 70", area: "Drive In", group: `Calle ${String(street).padStart(2,"0")}` }; }),
     ...Object.entries(envaseCells).filter(([, value]) => String(value || "").trim() === normalizedSku).map(([key]) => { const [street, level, position] = key.split("-"); return { warehouse: "Bodega 60", area: "Envases", group: `Calle ${String(street).padStart(2,"0")}` }; }),
   ] : [];
-  const assigned = locations.length;
+  const rackDriveAssigned = locations.filter((item) => item.area !== "Envases").length;
+  const envaseAssigned = envaseCapacityBySku(envaseStreets)[normalizedSku] ?? locations.filter((item) => item.area === "Envases").length;
+  const assigned = rackDriveAssigned + envaseAssigned;
   const stock = Number(product?.stock) || 0;
   const palletizing = Number(product?.units_per_pallet) || 0;
   const pallets = palletizing > 0 ? stock / palletizing : 0;
@@ -917,7 +948,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V8.4 Envases por stock</span>
+        <span style={styles.status}>V8.5 capacidad unificada</span>
       </div>
       {children}
     </section>
@@ -1461,7 +1492,7 @@ function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, sel
   );
 }
 
-function Bodega60({ activeTab, onTabChange, envaseCells, setEnvaseCells, canEdit, focusLocation }) {
+function Bodega60({ activeTab, onTabChange, envaseCells, setEnvaseCells, envaseLayoutConfig, setEnvaseLayoutConfig, canEdit, focusLocation }) {
   const tabs = [
     { id: "envases", label: "Envases" }, { id: "tc", label: "Etiquetas TC" },
     { id: "adhesivas", label: "Etiquetas Adhesivas" }, { id: "drive60", label: "Racks Drive In" },
@@ -1469,18 +1500,17 @@ function Bodega60({ activeTab, onTabChange, envaseCells, setEnvaseCells, canEdit
   const panels = { tc: ["TC", "Etiquetas TC", "Área de almacenamiento de etiquetas TC."], adhesivas: ["EA", "Etiquetas Adhesivas", "Área de almacenamiento de etiquetas adhesivas."], drive60: ["DI", "Racks Drive In", "Área de almacenamiento compacto de Bodega 60."] };
   return <Section title="Bodega 60" description="Envases y materiales de empaque.">
     <SubNav tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} />
-    {activeTab === "envases" ? <EnvasesLayout cells={envaseCells} setCells={setEnvaseCells} canEdit={canEdit} focusLocation={focusLocation} /> : <Placeholder code={panels[activeTab][0]} title={panels[activeTab][1]} text={panels[activeTab][2]} />}
+    {activeTab === "envases" ? <EnvasesLayout cells={envaseCells} setCells={setEnvaseCells} layoutConfig={envaseLayoutConfig} setLayoutConfig={setEnvaseLayoutConfig} canEdit={canEdit} focusLocation={focusLocation} /> : <Placeholder code={panels[activeTab][0]} title={panels[activeTab][1]} text={panels[activeTab][2]} />}
   </Section>;
 }
 
-function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
+function EnvasesLayout({ cells, setCells, layoutConfig, setLayoutConfig, canEdit, focusLocation }) {
   const [selectedSku, setSelectedSku] = useState("");
   const [detailSku, setDetailSku] = useState("");
   const [envQuery, setEnvQuery] = useState("");
   const [detailProduct, setDetailProduct] = useState(null);
   const [envSelection, setEnvSelection] = useState(null);
   const [envDragging, setEnvDragging] = useState(false);
-  const [layoutConfig, setLayoutConfig] = useState({});
   const [designMode, setDesignMode] = useState(false);
   const [envProducts, setEnvProducts] = useState({});
   const [configSaving, setConfigSaving] = useState(false);
@@ -1491,23 +1521,14 @@ function EnvasesLayout({ cells, setCells, canEdit, focusLocation }) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      supabase.from("envase_layout_config").select("street_id, footprints, levels, blocked_positions, sku, street_order, zone, is_custom, is_deleted"),
-      supabase.from("products").select("sku, description, stock, units_per_pallet").in("sku", [...new Set(ENVASE_STREETS.map((street) => street.sku))]),
-    ]).then(([configResult, productsResult]) => {
+    supabase.from("products").select("sku, description, stock, units_per_pallet").in("sku", [...new Set(resolveEnvaseStreets(layoutConfig).map((street) => street.sku))]).then((productsResult) => {
       if (cancelled) return;
-      if (!configResult.error) setLayoutConfig(Object.fromEntries((configResult.data ?? []).map((row) => [row.street_id, { footprints: row.footprints, levels: row.levels, blocked: Array.isArray(row.blocked_positions) ? row.blocked_positions : [], sku: row.sku, streetOrder: row.street_order, zone: row.zone, isCustom: row.is_custom, isDeleted: row.is_deleted }])));
       if (!productsResult.error) setEnvProducts(Object.fromEntries((productsResult.data ?? []).map((product) => [product.sku, product])));
     });
     return () => { cancelled = true; };
   }, []);
 
-  const baseStreets = ENVASE_STREETS.map((street) => {
-    const override = layoutConfig[street.id];
-    return override ? { ...street, sku: override.sku || street.sku, streetOrder: override.streetOrder || street.streetOrder, zone: override.zone || street.zone, footprints: override.footprints, levels: override.levels, blocked: override.blocked, isDeleted: override.isDeleted, capacity: override.footprints * override.levels - override.blocked.length } : street;
-  }).filter((street) => !street.isDeleted);
-  const customStreets = Object.entries(layoutConfig).filter(([id, item]) => item.isCustom && !item.isDeleted && !ENVASE_STREETS.some((street) => street.id === Number(id))).map(([id, item]) => ({ id: Number(id), sku: item.sku, streetOrder: item.streetOrder, zone: item.zone || "central", footprints: item.footprints, levels: item.levels, blocked: item.blocked || [], capacity: item.footprints * item.levels - (item.blocked || []).length, isCustom: true }));
-  const effectiveStreets = [...baseStreets, ...customStreets].sort((a, b) => a.sku.localeCompare(b.sku) || a.streetOrder - b.streetOrder);
+  const effectiveStreets = resolveEnvaseStreets(layoutConfig);
 
   async function saveStreetConfig(street, changes) {
     if (!canEdit) return;
@@ -2009,7 +2030,7 @@ function summarizeLocations(locations) {
   });
 }
 
-function MaestroProductos({ rackCells, driveCells, envaseCells, canEdit, isAdmin, userId, onNavigate, onAssign }) {
+function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, canEdit, isAdmin, userId, onNavigate, onAssign }) {
   const emptyDraft = { sku: "", description: "", stock: "", units_per_pallet: "", observation: "" };
   const [products, setProducts] = useState([]);
   const [draft, setDraft] = useState(emptyDraft);
@@ -2050,6 +2071,11 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, canEdit, isAdmin
     locationsBySku[normalized].push({ label: `ENV-C${String(street).padStart(2,"0")} · N${level} · P${position}`, target: "envases", unit: Number(street), level: Number(level), slot: Number(position) });
   });
 
+  envaseStreets.forEach((street) => {
+    if (!locationsBySku[street.sku]) locationsBySku[street.sku] = [];
+    if (!locationsBySku[street.sku].some((location) => location.target === "envases" && location.unit === street.id)) locationsBySku[street.sku].push({ label: `ENV-C${String(street.streetOrder).padStart(2,"0")} · ${street.capacity} pos.`, target: "envases", unit: street.id, level: 0, slot: 0, virtual: true });
+  });
+
   async function loadProducts() {
     setLoading(true); setError("");
     const result = await supabase.from("products").select("sku, description, stock, units_per_pallet, observation, updated_at").order("sku");
@@ -2067,7 +2093,9 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, canEdit, isAdmin
     const units = Number(product.units_per_pallet) || 0;
     const pallets = units > 0 ? stock / units : 0;
     const locations = locationsBySku[product.sku] ?? [];
-    const assigned = locations.length;
+    const physicalNonEnvase = locations.filter((location) => location.target !== "envases").length;
+    const envaseAssigned = envaseCapacityBySku(envaseStreets)[product.sku] ?? locations.filter((location) => location.target === "envases").length;
+    const assigned = physicalNonEnvase + envaseAssigned;
     return { ...product, stock, units, pallets, locations, assigned, difference: assigned - pallets };
   }
 
