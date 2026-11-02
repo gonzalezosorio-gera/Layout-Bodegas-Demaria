@@ -774,7 +774,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V7.5 logo alineado y acceso corporativo</span>
+        <span style={styles.status}>V7.5.1 logo ampliado corporativo</span>
       </div>
       {children}
     </section>
@@ -2162,7 +2162,7 @@ const rackPlacements = {
 };
 
 const styles = {
-  applicationBody: { maxWidth: 1540, margin: "0 auto", display: "grid", gridTemplateColumns: "248px minmax(0,1fr)", gap: 18, alignItems: "start" },
+  applicationBody: { maxWidth: 1540, margin: "0 auto", display: "grid", gridTemplateColumns: "280px minmax(0,1fr)", gap: 18, alignItems: "start" },
     sideNav: { position: "sticky", top: 14, minHeight: "calc(100vh - 40px)", padding: 10, display: "grid", alignContent: "start", gap: 5, border: `1px solid ${COLORS.border}`, borderRadius: 18, background: "#FFFFFF", boxShadow: "0 12px 32px rgba(16,24,40,.08)" },
     sideNavRoot: { width: "100%", padding: "12px 13px", display: "grid", gridTemplateColumns: "24px minmax(0,1fr) auto", alignItems: "center", gap: 8, border: 0, borderRadius: 11, background: "transparent", color: "#344054", textAlign: "left", cursor: "pointer" },
     sideNavActive: { background: "linear-gradient(135deg,#00C1C2,#009A9B)", color: "#FFFFFF", boxShadow: "0 6px 16px rgba(0,193,194,.22)" },
@@ -2223,15 +2223,15 @@ const styles = {
   reviewedBadge: { width: "fit-content", padding: "6px 9px", borderRadius: 999, background: "#ECFDF3", color: "#027A48", fontSize: 10, fontWeight: 850 },
   operatorEmptyLocation: { padding: 18, borderRadius: 14, background: "#FFFFFF", color: COLORS.muted, textAlign: "center" },
   app: { minHeight: "100vh", padding: 24, background: COLORS.background, color: COLORS.text, fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
-  header: { maxWidth: 1280, margin: "0 auto 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, flexWrap: "wrap" },
+  header: { maxWidth: 1540, margin: "0 auto 14px", display: "grid", gridTemplateColumns: "280px minmax(0,1fr)", alignItems: "center", gap: 18 },
   eyebrow: { margin: "0 0 6px", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800, letterSpacing: ".16em" },
   title: { margin: 0, fontSize: "clamp(28px,4vw,42px)", lineHeight: 1.1 },
   subtitle: { margin: "10px 0 0", color: COLORS.muted, fontSize: 15 },
   version: { padding: "8px 12px", height: "fit-content", borderRadius: 999, background: "#DDF9F8", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 800 },
-  brandBlock: { width: 248, display: "grid", gap: 4, justifyItems: "center", alignContent: "center" },
-  headerLogo: { width: 210, height: 62, display: "block", objectFit: "contain", objectPosition: "center" },
-  systemTitle: { color: COLORS.text, fontSize: 12, fontWeight: 950, letterSpacing: ".02em", textAlign: "center" },
-  headerTools: { width: "100%", display: "flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 12, flexWrap: "wrap" },
+  brandBlock: { width: 280, minHeight: 116, display: "grid", gap: 1, justifyItems: "start", alignContent: "center", paddingLeft: 2, boxSizing: "border-box" },
+  headerLogo: { width: 272, height: 86, display: "block", objectFit: "contain", objectPosition: "left center", imageRendering: "auto" },
+  systemTitle: { width: 272, color: COLORS.turquoiseDark, fontSize: 9, lineHeight: 1.15, fontWeight: 900, letterSpacing: ".025em", textAlign: "center", whiteSpace: "nowrap" },
+  headerTools: { width: "100%", display: "flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 12, flexWrap: "nowrap" },
   searchWrap: { position: "relative", width: "min(430px, 100%)", zIndex: 15 },
   searchBox: { minHeight: 46, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", border: `1px solid ${COLORS.border}`, borderRadius: 13, background: "#FFFFFF", boxShadow: "0 7px 22px rgba(16,24,40,.06)" },
   searchIcon: { color: COLORS.turquoiseDark, fontSize: 23, lineHeight: 1, fontWeight: 900 },
