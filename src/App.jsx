@@ -111,6 +111,7 @@ export default function App() {
   const [searchProduct, setSearchProduct] = useState(null);
   const [searchProductLoading, setSearchProductLoading] = useState(false);
   const [assignmentSku, setAssignmentSku] = useState("");
+  const [touchMode, setTouchMode] = useState(() => window.innerWidth <= 1024 && localStorage.getItem("demaria-desktop-mode") !== "on");
   const [focusLocation, setFocusLocation] = useState(null);
   const [rackCells, setRackCells] = useState({});
   const [driveCells, setDriveCells] = useState({});
@@ -372,6 +373,7 @@ export default function App() {
   const initials = displayName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const roleLabel = profile.role === "admin" ? "Administrador" : profile.role === "editor" ? "Editor" : profile.role === "operator" ? "Operador" : "Viewer";
   if (profile.role === "operator") return <OperatorMobile profile={profile} rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} onSignOut={() => supabase.auth.signOut()} desktopNotifications={desktopNotifications} onToggleNotifications={toggleDesktopNotifications} />;
+  if (canEdit && touchMode) return <TouchEditor profile={profile} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} onExit={() => { localStorage.setItem("demaria-desktop-mode", "on"); setTouchMode(false); }} onSignOut={() => supabase.auth.signOut()} />;
 
   return (
     <div
@@ -456,7 +458,7 @@ export default function App() {
             <div style={styles.userAvatar}>{initials || "US"}</div>
             <div style={styles.userText}><strong>{displayName}</strong><span>{roleLabel} · {syncState === "saving" ? "Guardando..." : syncState === "saved" ? "Guardado" : syncState === "error" ? "Error al guardar" : "En línea"}</span></div>
             <span style={{ ...styles.onlineDot, ...(syncState === "error" ? styles.errorDot : {}) }} />
-            <button type="button" onClick={() => supabase.auth.signOut()} style={styles.signOutButton}>Salir</button>
+            {canEdit && <button type="button" onClick={() => { localStorage.removeItem("demaria-desktop-mode"); setTouchMode(true); }} style={styles.touchModeButton}>Modo táctil</button>}<button type="button" onClick={() => supabase.auth.signOut()} style={styles.signOutButton}>Salir</button>
           </div><label style={styles.desktopNotificationToggle}><input type="checkbox" checked={desktopNotifications} onChange={toggleDesktopNotifications} /><span>Alertas de stock en este equipo</span></label></div>
         </div>
       </header>
@@ -503,6 +505,113 @@ export default function App() {
     </div>
   );
 }
+
+function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCells, onExit, onSignOut }) {
+  const [view, setView] = useState("location");
+  const [area, setArea] = useState("racks");
+  const [unit, setUnit] = useState(1);
+  const [level, setLevel] = useState(1);
+  const [position, setPosition] = useState(1);
+  const [skuDraft, setSkuDraft] = useState("");
+  const [currentProduct, setCurrentProduct] = useState(null);
+  const [searchSku, setSearchSku] = useState("");
+  const [searchProduct, setSearchProduct] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const cells = area === "racks" ? rackCells : driveCells;
+  const setCells = area === "racks" ? setRackCells : setDriveCells;
+  const maxUnit = area === "racks" ? 11 : 23;
+  const maxPosition = area === "racks" ? (RACKS.find((rack) => rack.number === Number(unit))?.positions || 6) : 5;
+  const key = `${unit}-${level}-${position}`;
+  const currentSku = String(cells[key] || "").trim();
+
+  useEffect(() => {
+    if (position > maxPosition) setPosition(maxPosition);
+  }, [area, unit, maxPosition]);
+  useEffect(() => {
+    setSkuDraft(currentSku);
+    setMessage(""); setError("");
+    if (!currentSku) { setCurrentProduct(null); return; }
+    let cancelled = false;
+    supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", currentSku).maybeSingle().then(({ data }) => { if (!cancelled) setCurrentProduct(data ?? null); });
+    return () => { cancelled = true; };
+  }, [area, unit, level, position, currentSku]);
+
+  async function validateSku(value) {
+    if (!/^\d{8}$/.test(value)) return { error: "El SKU debe contener exactamente 8 números." };
+    const result = await supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", value).maybeSingle();
+    if (result.error || !result.data) return { error: "El SKU no existe en el Maestro de Productos." };
+    return { product: result.data };
+  }
+  async function savePosition() {
+    setError(""); setMessage("");
+    const value = skuDraft.trim();
+    if (!value) return clearPosition();
+    const validation = await validateSku(value);
+    if (validation.error) return setError(validation.error);
+    if (currentSku && currentSku !== value && !window.confirm(`La posición contiene ${currentSku}. ¿Reemplazar por ${value}?`)) return;
+    setCells((current) => ({ ...current, [key]: value }));
+    setCurrentProduct(validation.product);
+    setMessage(`SKU ${value} guardado en ${locationLabel(area, unit, level, position)}.`);
+  }
+  function clearPosition() {
+    if (currentSku && !window.confirm(`¿Vaciar ${locationLabel(area, unit, level, position)}?`)) return;
+    setCells((current) => { const next = { ...current }; delete next[key]; return next; });
+    setSkuDraft(""); setCurrentProduct(null); setMessage("Posición liberada."); setError("");
+  }
+  function movePosition(direction) {
+    let next = Number(position) + direction;
+    if (next < 1) next = maxPosition;
+    if (next > maxPosition) next = 1;
+    setPosition(next);
+  }
+  async function searchProductBySku(event) {
+    event?.preventDefault(); setError(""); setMessage("");
+    const value = searchSku.trim();
+    const validation = await validateSku(value);
+    if (validation.error) { setSearchProduct(null); return setError(validation.error); }
+    setSearching(false); setSearchProduct(validation.product);
+  }
+  const searchLocations = searchSku.trim() ? [
+    ...Object.entries(rackCells).filter(([, value]) => String(value || "").trim() === searchSku.trim()).map(([locationKey]) => { const [u,l,p] = locationKey.split("-"); return { area: "racks", unit: Number(u), level: Number(l), position: Number(p) }; }),
+    ...Object.entries(driveCells).filter(([, value]) => String(value || "").trim() === searchSku.trim()).map(([locationKey]) => { const [u,l,p] = locationKey.split("-"); return { area: "drive", unit: Number(u), level: Number(l), position: Number(p) }; }),
+  ] : [];
+  function openLocation(item) { setArea(item.area); setUnit(item.unit); setLevel(item.level); setPosition(item.position); setView("location"); }
+
+  return <div style={styles.touchShell}>
+    <header style={styles.touchHeader}><img src={`${import.meta.env.BASE_URL}demaria-logo.png`} alt="Demaria 1896" style={styles.touchLogo} /><div style={styles.touchUser}><strong>{profile.display_name || "Usuario"}</strong><span>{profile.role === "admin" ? "Administrador" : "Editor"}</span></div><button type="button" onClick={onExit} style={styles.touchHeaderButton}>Escritorio</button><button type="button" onClick={onSignOut} style={styles.touchHeaderButton}>Salir</button></header>
+    <main style={styles.touchMain}>
+      {view === "location" && <>
+        <section style={styles.touchIntro}><span>EDICIÓN TÁCTIL</span><h1>Editar una posición</h1><p>Selecciona la ubicación, revisa el producto y confirma el cambio.</p></section>
+        <div style={styles.touchAreaTabs}><button onClick={() => { setArea("racks"); setUnit(1); setPosition(1); }} style={area === "racks" ? styles.touchAreaActive : styles.touchAreaButton}>Racks Selectivos</button><button onClick={() => { setArea("drive"); setUnit(1); setPosition(1); }} style={area === "drive" ? styles.touchAreaActive : styles.touchAreaButton}>Drive In</button></div>
+        <section style={styles.touchLocationCard}>
+          <div style={styles.touchLocationTitle}><span>BODEGA 70</span><strong>{area === "racks" ? `Rack ${unit}` : `Calle ${String(unit).padStart(2,"0")}`} · Nivel {level} · P{position}</strong></div>
+          <div style={styles.touchSelectorGrid}><TouchSelect label={area === "racks" ? "Rack" : "Calle"} value={unit} onChange={setUnit} max={maxUnit} /><TouchSelect label="Nivel" value={level} onChange={setLevel} max={3} /><TouchSelect label="Posición" value={position} onChange={setPosition} max={maxPosition} /></div>
+          <div style={styles.touchPositionNavigator}><button type="button" onClick={() => movePosition(-1)}>‹ Anterior</button><button type="button" onClick={() => movePosition(1)}>Siguiente ›</button></div>
+        </section>
+        <section style={styles.touchProductCard}>
+          <label style={styles.touchField}>SKU de la posición<input inputMode="numeric" maxLength={8} value={skuDraft} onChange={(event) => setSkuDraft(event.target.value.replace(/\D/g,""))} placeholder="Escribe o escanea el SKU" style={styles.touchSkuInput} /></label>
+          <div style={styles.touchProductDetail}><span>Producto actual</span><strong>{currentProduct?.description || (currentSku ? "SKU sin descripción en Maestro" : "Posición vacía")}</strong>{currentProduct && <small>Stock {formatNumber(currentProduct.stock)} · Palletizado {formatNumber(currentProduct.units_per_pallet)}</small>}</div>
+          {error && <div style={styles.touchError}>{error}</div>}{message && <div style={styles.touchSuccess}>{message}</div>}
+          <div style={styles.touchActions}><button type="button" onClick={savePosition} style={styles.touchSaveButton}>Guardar SKU</button><button type="button" onClick={clearPosition} disabled={!currentSku} style={styles.touchClearButton}>Vaciar posición</button></div>
+        </section>
+      </>}
+      {view === "search" && <>
+        <section style={styles.touchIntro}><span>CONSULTA RÁPIDA</span><h1>Buscar SKU</h1><p>Encuentra todas sus posiciones y abre una para editarla.</p></section>
+        <form onSubmit={searchProductBySku} style={styles.touchSearchCard}><input inputMode="numeric" maxLength={8} value={searchSku} onChange={(event) => { setSearchSku(event.target.value.replace(/\D/g,"")); setSearchProduct(null); }} placeholder="Ingresa SKU de 8 dígitos" style={styles.touchSkuInput} /><button style={styles.touchSaveButton}>Buscar</button></form>
+        {error && <div style={styles.touchError}>{error}</div>}
+        {searchProduct && <section style={styles.touchSearchResult}><span>SKU {searchProduct.sku}</span><h2>{searchProduct.description}</h2><p>Stock {formatNumber(searchProduct.stock)} · Palletizado {formatNumber(searchProduct.units_per_pallet)}</p><strong>{searchLocations.length} posiciones encontradas</strong></section>}
+        <div style={styles.touchLocationList}>{searchLocations.map((item,index) => <button key={`${item.area}-${item.unit}-${item.level}-${item.position}-${index}`} onClick={() => openLocation(item)} style={styles.touchLocationResult}><span>Bodega 70 · {item.area === "racks" ? "Racks Selectivos" : "Drive In"}</span><strong>{locationLabel(item.area,item.unit,item.level,item.position)}</strong><b>Editar ›</b></button>)}</div>
+      </>}
+    </main>
+    <nav style={styles.touchBottomNav}><button onClick={() => setView("location")} style={view === "location" ? styles.touchNavActive : styles.touchNavButton}><span>▦</span>Posición</button><button onClick={() => setView("search")} style={view === "search" ? styles.touchNavActive : styles.touchNavButton}><span>⌕</span>Buscar SKU</button></nav>
+  </div>;
+}
+function TouchSelect({ label, value, onChange, max }) {
+  return <label style={styles.touchField}>{label}<select value={value} onChange={(event) => onChange(Number(event.target.value))} style={styles.touchSelect}>{Array.from({ length: max }, (_, index) => index + 1).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>;
+}
+function locationLabel(area, unit, level, position) { return area === "racks" ? `Rack ${unit} · Nivel ${level} · P${position}` : `Calle ${String(unit).padStart(2,"0")} · Nivel ${level} · P${position}`; }
 
 function SidebarWarehouse({ title, open, onToggle, children }) {
   return <div><button type="button" onClick={onToggle} style={styles.sideWarehouseButton}><span>{open ? "▾" : "▸"}</span><strong>{title}</strong></button>{open && <div style={styles.sideWarehouseChildren}>{children}</div>}</div>;
@@ -774,7 +883,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V7.5.1 logo ampliado corporativo</span>
+        <span style={styles.status}>V8.0 prototipo táctil</span>
       </div>
       {children}
     </section>
@@ -2162,7 +2271,39 @@ const rackPlacements = {
 };
 
 const styles = {
-  applicationBody: { maxWidth: 1540, margin: "0 auto", display: "grid", gridTemplateColumns: "280px minmax(0,1fr)", gap: 18, alignItems: "start" },
+  touchShell: { minHeight: "100vh", paddingBottom: 88, background: "#EEF3F5", color: COLORS.text },
+    touchHeader: { position: "sticky", top: 0, zIndex: 30, padding: "10px 12px", display: "grid", gridTemplateColumns: "88px minmax(0,1fr) auto auto", alignItems: "center", gap: 8, background: "#FFFFFF", borderBottom: `1px solid ${COLORS.border}`, boxShadow: "0 6px 18px rgba(16,24,40,.08)" },
+    touchLogo: { width: 84, height: 36, objectFit: "contain" },
+    touchUser: { minWidth: 0, display: "grid", gap: 2, fontSize: 11 },
+    touchHeaderButton: { padding: "9px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 9, background: "#FFFFFF", color: COLORS.text, fontSize: 10, fontWeight: 800 },
+    touchMain: { width: "min(100%,760px)", margin: "0 auto", padding: "18px 13px 24px", display: "grid", gap: 14 },
+    touchIntro: { display: "grid", gap: 4 },
+    touchAreaTabs: { display: "grid", gridTemplateColumns: "1fr 1fr", padding: 4, gap: 5, borderRadius: 13, background: "#DDE6E9" },
+    touchAreaButton: { padding: 13, border: 0, borderRadius: 10, background: "transparent", color: COLORS.muted, fontSize: 14, fontWeight: 850 },
+    touchAreaActive: { padding: 13, border: 0, borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 14, fontWeight: 900, boxShadow: "0 5px 14px rgba(0,193,194,.25)" },
+    touchLocationCard: { padding: 15, display: "grid", gap: 13, border: `1px solid ${COLORS.border}`, borderRadius: 17, background: "#FFFFFF", boxShadow: "0 8px 22px rgba(16,24,40,.07)" },
+    touchLocationTitle: { display: "grid", gap: 4 },
+    touchSelectorGrid: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9 },
+    touchField: { display: "grid", gap: 6, color: COLORS.muted, fontSize: 11, fontWeight: 850 },
+    touchSelect: { width: "100%", minHeight: 50, padding: "0 11px", border: `2px solid ${COLORS.border}`, borderRadius: 11, background: "#FFFFFF", color: COLORS.text, fontSize: 18, fontWeight: 850 },
+    touchPositionNavigator: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 },
+    touchProductCard: { padding: 15, display: "grid", gap: 13, border: `1px solid ${COLORS.border}`, borderRadius: 17, background: "#FFFFFF", boxShadow: "0 8px 22px rgba(16,24,40,.07)" },
+    touchSkuInput: { width: "100%", minHeight: 56, padding: "0 13px", border: `2px solid ${COLORS.turquoise}`, borderRadius: 12, boxSizing: "border-box", color: COLORS.text, fontSize: 22, fontWeight: 900, letterSpacing: ".05em", outline: "none" },
+    touchProductDetail: { padding: 13, display: "grid", gap: 4, borderRadius: 12, background: "#F7FFFF" },
+    touchActions: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 },
+    touchSaveButton: { minHeight: 52, padding: "0 16px", border: 0, borderRadius: 11, background: COLORS.turquoiseDark, color: "#FFFFFF", fontSize: 15, fontWeight: 900 },
+    touchClearButton: { minHeight: 52, padding: "0 16px", border: "1px solid #F04438", borderRadius: 11, background: "#FFF1F1", color: "#B42318", fontSize: 15, fontWeight: 900 },
+    touchError: { padding: 11, borderRadius: 10, background: "#FFF1F1", color: "#B42318", fontSize: 12 },
+    touchSuccess: { padding: 11, borderRadius: 10, background: "#ECFDF3", color: "#027A48", fontSize: 12 },
+    touchSearchCard: { padding: 14, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 8, borderRadius: 16, background: "#FFFFFF" },
+    touchSearchResult: { padding: 15, display: "grid", gap: 5, borderRadius: 16, background: "linear-gradient(135deg,#071F2A,#0B3B4A)", color: "#FFFFFF" },
+    touchLocationList: { display: "grid", gap: 8 },
+    touchLocationResult: { padding: 14, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 4, border: `1px solid ${COLORS.turquoise}`, borderRadius: 13, background: "#FFFFFF", color: COLORS.text, textAlign: "left" },
+    touchBottomNav: { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40, padding: "8px 12px calc(8px + env(safe-area-inset-bottom))", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, borderTop: `1px solid ${COLORS.border}`, background: "rgba(255,255,255,.96)", backdropFilter: "blur(12px)" },
+    touchNavButton: { minHeight: 52, display: "grid", placeItems: "center", gap: 2, border: 0, borderRadius: 11, background: "transparent", color: COLORS.muted, fontWeight: 800 },
+    touchNavActive: { minHeight: 52, display: "grid", placeItems: "center", gap: 2, border: 0, borderRadius: 11, background: "#E7FBFB", color: COLORS.turquoiseDark, fontWeight: 900 },
+    touchModeButton: { padding: "7px 9px", border: `1px solid ${COLORS.turquoise}`, borderRadius: 8, background: "#E7FBFB", color: COLORS.turquoiseDark, fontSize: 9, fontWeight: 850, cursor: "pointer" },
+    applicationBody: { maxWidth: 1540, margin: "0 auto", display: "grid", gridTemplateColumns: "280px minmax(0,1fr)", gap: 18, alignItems: "start" },
     sideNav: { position: "sticky", top: 14, minHeight: "calc(100vh - 40px)", padding: 10, display: "grid", alignContent: "start", gap: 5, border: `1px solid ${COLORS.border}`, borderRadius: 18, background: "#FFFFFF", boxShadow: "0 12px 32px rgba(16,24,40,.08)" },
     sideNavRoot: { width: "100%", padding: "12px 13px", display: "grid", gridTemplateColumns: "24px minmax(0,1fr) auto", alignItems: "center", gap: 8, border: 0, borderRadius: 11, background: "transparent", color: "#344054", textAlign: "left", cursor: "pointer" },
     sideNavActive: { background: "linear-gradient(135deg,#00C1C2,#009A9B)", color: "#FFFFFF", boxShadow: "0 6px 16px rgba(0,193,194,.22)" },
