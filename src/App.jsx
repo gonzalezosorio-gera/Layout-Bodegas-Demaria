@@ -373,7 +373,7 @@ export default function App() {
   const initials = displayName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const roleLabel = profile.role === "admin" ? "Administrador" : profile.role === "editor" ? "Editor" : profile.role === "operator" ? "Operador" : "Viewer";
   if (profile.role === "operator") return <OperatorMobile profile={profile} rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} onSignOut={() => supabase.auth.signOut()} desktopNotifications={desktopNotifications} onToggleNotifications={toggleDesktopNotifications} />;
-  if (canEdit && touchMode) return <TouchEditor profile={profile} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} onExit={() => { localStorage.setItem("demaria-desktop-mode", "on"); setTouchMode(false); }} onSignOut={() => supabase.auth.signOut()} />;
+  if (canEdit && touchMode) return <TouchEditor profile={profile} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} onExit={() => { localStorage.setItem("demaria-desktop-mode", "on"); setTouchMode(false); }} onSignOut={() => supabase.auth.signOut()} />;
 
   return (
     <div
@@ -506,109 +506,55 @@ export default function App() {
   );
 }
 
-function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCells, onExit, onSignOut }) {
+function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCells, envaseCells, setEnvaseCells, onExit, onSignOut }) {
   const [view, setView] = useState("racks");
-  const [selectedRack, setSelectedRack] = useState(null);
-  const [columnStart, setColumnStart] = useState(1);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [pageStart, setPageStart] = useState(1);
   const [selectedCell, setSelectedCell] = useState(null);
   const [skuDraft, setSkuDraft] = useState("");
   const [currentProduct, setCurrentProduct] = useState(null);
-  const [driveStreet, setDriveStreet] = useState(1);
-  const [driveLevel, setDriveLevel] = useState(1);
-  const [driveDepth, setDriveDepth] = useState(1);
+  const [touchProducts, setTouchProducts] = useState({});
   const [searchSku, setSearchSku] = useState("");
   const [searchProduct, setSearchProduct] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [touchProducts, setTouchProducts] = useState({});
-
+  const sources = { racks: [rackCells,setRackCells], drive: [driveCells,setDriveCells], envases: [envaseCells,setEnvaseCells] };
   const selectedKey = selectedCell ? `${selectedCell.unit}-${selectedCell.level}-${selectedCell.position}` : "";
-  const selectedCells = selectedCell?.area === "drive" ? driveCells : rackCells;
-  const selectedSetCells = selectedCell?.area === "drive" ? setDriveCells : setRackCells;
+  const [selectedCells,setSelectedCells] = selectedCell ? sources[selectedCell.area] : [rackCells,setRackCells];
   const currentSku = selectedKey ? String(selectedCells[selectedKey] || "").trim() : "";
 
   useEffect(() => {
-    const skus = [...new Set(Object.values(rackCells).map((value) => String(value || "").trim()).filter(Boolean))];
-    if (!skus.length) { setTouchProducts({}); return; }
-    let cancelled = false;
-    supabase.from("products").select("sku, description").in("sku", skus).then(({ data, error }) => {
-      if (!cancelled && !error) setTouchProducts(Object.fromEntries((data || []).map((item) => [String(item.sku).trim(), item])));
-    });
-    return () => { cancelled = true; };
-  }, [rackCells]);
-  useEffect(() => {
-    if (!selectedCell) { setSkuDraft(""); setCurrentProduct(null); return; }
-    setSkuDraft(currentSku); setMessage(""); setError("");
-    if (!currentSku) { setCurrentProduct(null); return; }
-    let cancelled = false;
-    supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", currentSku).maybeSingle().then(({ data }) => { if (!cancelled) setCurrentProduct(data ?? null); });
-    return () => { cancelled = true; };
-  }, [selectedKey, currentSku]);
-
-  async function validateSku(value) {
-    if (!/^\d{8}$/.test(value)) return { error: "El SKU debe contener exactamente 8 números." };
-    const result = await supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku", value).maybeSingle();
-    if (result.error || !result.data) return { error: "El SKU no existe en el Maestro de Productos." };
-    return { product: result.data };
-  }
-  async function saveSelectedCell() {
-    if (!selectedCell) return;
-    const value = skuDraft.trim(); setError(""); setMessage("");
-    if (!value) return clearSelectedCell();
-    const validation = await validateSku(value);
-    if (validation.error) return setError(validation.error);
-    if (currentSku && currentSku !== value && !window.confirm(`La posición contiene ${currentSku}. ¿Reemplazar por ${value}?`)) return;
-    selectedSetCells((current) => ({ ...current, [selectedKey]: value }));
-    setCurrentProduct(validation.product);
-    setMessage(`SKU ${value} guardado.`);
-  }
-  function clearSelectedCell() {
-    if (!selectedCell) return;
-    if (currentSku && !window.confirm(`¿Vaciar ${touchLocationLabel(selectedCell)}?`)) return;
-    selectedSetCells((current) => { const next = { ...current }; delete next[selectedKey]; return next; });
-    setSkuDraft(""); setCurrentProduct(null); setMessage("Posición liberada."); setError("");
-  }
-  function selectRack(rackNumber) { setSelectedRack(rackNumber); setColumnStart(1); setSelectedCell(null); setView("rackDetail"); }
-  function selectCell(area, unit, level, position) { setSelectedCell({ area, unit, level, position }); setMessage(""); setError(""); }
-  function closeEditor(event) { if (!event.target.closest?.('[data-touch-cell="true"]') && !event.target.closest?.('[data-touch-editor="true"]')) setSelectedCell(null); }
-  function pageRack(direction) {
-    const rack = RACKS.find((item) => item.number === selectedRack);
-    const maxStart = Math.max(1, rack.positions - 1);
-    let next = columnStart + direction * 2;
-    if (next < 1) next = 1;
-    if (next > maxStart) next = maxStart;
-    setColumnStart(next); setSelectedCell(null);
-  }
-  async function searchProductBySku(event) {
-    event?.preventDefault(); setError("");
-    const validation = await validateSku(searchSku.trim());
-    if (validation.error) { setSearchProduct(null); return setError(validation.error); }
-    setSearchProduct(validation.product);
-  }
-  const searchLocations = searchSku.trim() ? [
-    ...Object.entries(rackCells).filter(([, value]) => String(value || "").trim() === searchSku.trim()).map(([key]) => { const [unit,level,position] = key.split("-"); return { area: "racks", unit: Number(unit), level: Number(level), position: Number(position) }; }),
-    ...Object.entries(driveCells).filter(([, value]) => String(value || "").trim() === searchSku.trim()).map(([key]) => { const [unit,level,position] = key.split("-"); return { area: "drive", unit: Number(unit), level: Number(level), position: Number(position) }; }),
-  ] : [];
-  function openSearchLocation(item) { if (item.area === "racks") { selectRack(item.unit); setColumnStart(Math.floor((item.position - 1) / 2) * 2 + 1); } else { setDriveStreet(item.unit); setDriveLevel(item.level); setDriveDepth(item.position); setView("drive"); } setTimeout(() => selectCell(item.area,item.unit,item.level,item.position),0); }
-
-  const rack = RACKS.find((item) => item.number === selectedRack);
-  const visiblePositions = rack ? [columnStart, columnStart + 1].filter((position) => position <= rack.positions) : [];
-  const levels = [3,2,1];
-
-  return <div style={styles.touchShell} onMouseDown={closeEditor}>
-    <header style={styles.touchHeader}><img src={`${import.meta.env.BASE_URL}demaria-logo.png`} alt="Demaria 1896" style={styles.touchLogo} /><div style={styles.touchUser}><strong>{profile.display_name || "Usuario"}</strong><span>{profile.role === "admin" ? "Administrador" : "Editor"}</span></div><button type="button" onClick={onExit} style={styles.touchHeaderButton}>Escritorio</button><button type="button" onClick={onSignOut} style={styles.touchHeaderButton}>Salir</button></header>
-    <main style={styles.touchMain}>
-      {view === "racks" && <><section style={styles.touchIntro}><span>BODEGA 70</span><h1>Racks Selectivos</h1><p>Selecciona un rack para editar sus posiciones de dos columnas por pantalla.</p></section><div style={styles.touchRackOverview}>{RACKS.map((item) => { const total = item.positions * 3; const assigned = Object.keys(rackCells).filter((key) => key.startsWith(`${item.number}-`) && String(rackCells[key] || "").trim()).length; const free = Math.max(total - assigned, 0); return <button key={item.number} onClick={() => selectRack(item.number)} style={styles.touchRackCard}><strong style={styles.touchRackCardTitle}>Rack {item.number}</strong><div style={styles.touchRackMetrics}><span><small>Total de posiciones</small><b>{total}</b></span><span><small>Posiciones asignadas</small><b>{assigned}</b></span><span><small>Posiciones libres</small><b style={free > 0 ? styles.touchRackFreeValue : styles.touchRackFullValue}>{free}</b></span></div><b style={styles.touchRackOpen}>Abrir ›</b></button>; })}</div></>}
-      {view === "rackDetail" && rack && <><div style={styles.touchRackTopbar}><button type="button" onClick={() => { setView("racks"); setSelectedRack(null); setSelectedCell(null); }} style={styles.touchBackButton}>‹ Todos los racks</button><div><span>BODEGA 70 · RACKS SELECTIVOS</span><strong>Rack {rack.number}</strong></div></div><section style={styles.touchRackWindow}><div style={styles.touchRackColumnHeaders}><span>Nivel</span>{visiblePositions.map((pos) => <strong key={pos}>P{pos}</strong>)}</div>{levels.map((level) => <div key={level} style={styles.touchRackRow}><strong>N{level}</strong>{visiblePositions.map((pos) => { const key=`${rack.number}-${level}-${pos}`; const sku=String(rackCells[key]||"").trim(); const active=selectedCell?.area==="racks"&&selectedCell.unit===rack.number&&selectedCell.level===level&&selectedCell.position===pos; const description = sku ? touchProducts[sku]?.description || "Sin descripción" : "Agregar SKU"; return <button data-touch-cell="true" key={key} onClick={() => selectCell("racks",rack.number,level,pos)} style={{...styles.touchRackCell,...(active?styles.touchRackCellActive:{}),...(sku?styles.touchRackCellFilled:{})}}><span>{sku || "VACÍO"}</span><small style={styles.touchRackCellDescription}>{description}</small></button>; })}</div>)}</section><div style={styles.touchRackPager}><button onClick={() => pageRack(-1)} disabled={columnStart===1}>‹ Columnas anteriores</button><span>P{visiblePositions[0]}{visiblePositions[1] ? `–P${visiblePositions[1]}` : ""} de {rack.positions}</span><button onClick={() => pageRack(1)} disabled={visiblePositions.includes(rack.positions)}>Columnas siguientes ›</button></div></>}
-      {view === "drive" && <><section style={styles.touchIntro}><span>BODEGA 70</span><h1>Drive In</h1><p>Selecciona calle, nivel y profundidad para editar.</p></section><section style={styles.touchLocationCard}><div style={styles.touchSelectorGrid}><TouchSelect label="Calle" value={driveStreet} onChange={setDriveStreet} max={23}/><TouchSelect label="Nivel" value={driveLevel} onChange={setDriveLevel} max={3}/><TouchSelect label="Profundidad" value={driveDepth} onChange={setDriveDepth} max={5}/></div><button data-touch-cell="true" onClick={() => selectCell("drive",driveStreet,driveLevel,driveDepth)} style={styles.touchDriveOpen}>Abrir Calle {String(driveStreet).padStart(2,"0")} · N{driveLevel} · P{driveDepth}</button></section></>}
-      {view === "search" && <><section style={styles.touchIntro}><span>CONSULTA RÁPIDA</span><h1>Buscar SKU</h1><p>Encuentra ubicaciones y abre una celda para editar.</p></section><form onSubmit={searchProductBySku} style={styles.touchSearchCard}><input inputMode="numeric" maxLength={8} value={searchSku} onChange={(event)=>{setSearchSku(event.target.value.replace(/\D/g,""));setSearchProduct(null);}} placeholder="SKU de 8 dígitos" style={styles.touchSkuInput}/><button style={styles.touchSaveButton}>Buscar</button></form>{error&&<div style={styles.touchError}>{error}</div>}{searchProduct&&<section style={styles.touchSearchResult}><span>SKU {searchProduct.sku}</span><h2>{searchProduct.description}</h2><p>Stock {formatNumber(searchProduct.stock)} · Palletizado {formatNumber(searchProduct.units_per_pallet)}</p><strong>{searchLocations.length} posiciones</strong></section>}<div style={styles.touchLocationList}>{searchLocations.map((item,index)=><button key={index} onClick={()=>openSearchLocation(item)} style={styles.touchLocationResult}><span>{item.area==="racks"?"Racks Selectivos":"Drive In"}</span><strong>{touchLocationLabel(item)}</strong><b>Editar ›</b></button>)}</div></>}
-    </main>
-    {selectedCell && <section data-touch-editor="true" style={styles.touchBottomSheet}><div style={styles.touchSheetHandle}/><div style={styles.touchSheetHeader}><div><span>{selectedCell.area === "racks" ? "RACKS SELECTIVOS" : "DRIVE IN"}</span><strong>{touchLocationLabel(selectedCell)}</strong></div><button onClick={() => setSelectedCell(null)}>×</button></div><label style={styles.touchField}>SKU<input autoFocus inputMode="numeric" maxLength={8} value={skuDraft} onChange={(event)=>setSkuDraft(event.target.value.replace(/\D/g,""))} placeholder="Ingresa SKU" style={styles.touchSkuInput}/></label><div style={styles.touchProductDetail}><span>Producto actual</span><strong>{currentProduct?.description || (currentSku ? "SKU sin descripción" : "Posición vacía")}</strong>{currentProduct&&<small>Stock {formatNumber(currentProduct.stock)} · Palletizado {formatNumber(currentProduct.units_per_pallet)}</small>}</div>{error&&<div style={styles.touchError}>{error}</div>}{message&&<div style={styles.touchSuccess}>{message}</div>}<div style={styles.touchActions}><button onClick={saveSelectedCell} style={styles.touchSaveButton}>Guardar / modificar</button><button onClick={clearSelectedCell} disabled={!currentSku} style={styles.touchClearButton}>Borrar SKU</button></div></section>}
-    <nav style={styles.touchBottomNav}><button onClick={()=>{setView("racks");setSelectedCell(null);}} style={["racks","rackDetail"].includes(view)?styles.touchNavActive:styles.touchNavButton}><span>▦</span>Racks</button><button onClick={()=>{setView("drive");setSelectedCell(null);}} style={view==="drive"?styles.touchNavActive:styles.touchNavButton}><span>≡</span>Drive In</button><button onClick={()=>{setView("search");setSelectedCell(null);}} style={view==="search"?styles.touchNavActive:styles.touchNavButton}><span>⌕</span>Buscar</button></nav>
-  </div>;
+    const skus=[...new Set([...Object.values(rackCells),...Object.values(driveCells),...Object.values(envaseCells)].map(v=>String(v||"").trim()).filter(Boolean))];
+    if(!skus.length){setTouchProducts({});return;}
+    let cancelled=false;
+    supabase.from("products").select("sku, description").in("sku",skus).then(({data,error})=>{if(!cancelled&&!error)setTouchProducts(Object.fromEntries((data||[]).map(item=>[String(item.sku).trim(),item])));});
+    return()=>{cancelled=true;};
+  },[rackCells,driveCells,envaseCells]);
+  useEffect(()=>{if(!selectedCell){setSkuDraft("");setCurrentProduct(null);return;}setSkuDraft(currentSku);setMessage("");setError("");if(!currentSku){setCurrentProduct(null);return;}let cancelled=false;supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku",currentSku).maybeSingle().then(({data})=>{if(!cancelled)setCurrentProduct(data||null);});return()=>{cancelled=true;};},[selectedKey,currentSku]);
+  async function validateSku(value){if(!/^\d{8}$/.test(value))return{error:"El SKU debe contener exactamente 8 números."};const result=await supabase.from("products").select("sku, description, stock, units_per_pallet").eq("sku",value).maybeSingle();if(result.error||!result.data)return{error:"El SKU no existe en el Maestro de Productos."};return{product:result.data};}
+  async function saveCell(){if(!selectedCell)return;const value=skuDraft.trim();setError("");setMessage("");if(!value)return clearCell();const result=await validateSku(value);if(result.error)return setError(result.error);if(currentSku&&currentSku!==value&&!window.confirm(`La posición contiene ${currentSku}. ¿Reemplazar por ${value}?`))return;setSelectedCells(current=>({...current,[selectedKey]:value}));setCurrentProduct(result.product);setMessage("SKU guardado correctamente.");}
+  function clearCell(){if(!selectedCell)return;if(currentSku&&!window.confirm(`¿Vaciar ${touchLocationLabel(selectedCell)}?`))return;setSelectedCells(current=>{const next={...current};delete next[selectedKey];return next;});setSkuDraft("");setCurrentProduct(null);setMessage("Posición liberada.");}
+  function openGroup(area,unit){setView(`${area}Detail`);setSelectedGroup(unit);setPageStart(1);setSelectedCell(null);}
+  function selectCell(area,unit,level,position){setSelectedCell({area,unit,level,position});setMessage("");setError("");}
+  function closeEditor(event){if(!event.target.closest?.('[data-touch-cell="true"]')&&!event.target.closest?.('[data-touch-editor="true"]'))setSelectedCell(null);}
+  function page(direction,max){let next=pageStart+direction*2;const maxStart=Math.max(1,max-1);if(next<1)next=1;if(next>maxStart)next=maxStart;setPageStart(next);setSelectedCell(null);}
+  async function search(event){event?.preventDefault();setError("");const result=await validateSku(searchSku.trim());if(result.error){setSearchProduct(null);return setError(result.error);}setSearchProduct(result.product);}
+  const searchLocations=searchSku.trim()?[...Object.entries(rackCells).filter(([,v])=>String(v||"").trim()===searchSku.trim()).map(([k])=>mapLoc("racks",k)),...Object.entries(driveCells).filter(([,v])=>String(v||"").trim()===searchSku.trim()).map(([k])=>mapLoc("drive",k)),...Object.entries(envaseCells).filter(([,v])=>String(v||"").trim()===searchSku.trim()).map(([k])=>mapLoc("envases",k))]:[];
+  function mapLoc(area,key){const[u,l,p]=key.split("-").map(Number);return{area,unit:u,level:l,position:p};}
+  function openLocation(item){const start=Math.floor((item.position-1)/2)*2+1;setSelectedGroup(item.unit);setPageStart(start);setView(`${item.area}Detail`);setTimeout(()=>selectCell(item.area,item.unit,item.level,item.position),0);}
+  const rack=RACKS.find(item=>item.number===selectedGroup);
+  const street=ENVASE_STREETS.find(item=>item.id===selectedGroup);
+  const detail={racks:rack?{title:`Rack ${rack.number}`,max:rack.positions,levels:[3,2,1],cells:rackCells}:null,drive:selectedGroup?{title:`Calle ${String(selectedGroup).padStart(2,"0")}`,max:5,levels:[3,2,1],cells:driveCells}:null,envases:street?{title:`${street.sku} · Calle ${String(street.streetOrder).padStart(2,"0")}`,max:street.footprints,levels:Array.from({length:street.levels},(_,i)=>street.levels-i),cells:envaseCells,blocked:street.blocked||[]}:null};
+  const areaFromView=view.replace("Detail","");const activeDetail=detail[areaFromView];const visible=activeDetail?[pageStart,pageStart+1].filter(p=>p<=activeDetail.max):[];
+  function cards(area){if(area==="racks")return RACKS.map(item=>({unit:item.number,title:`Rack ${item.number}`,total:item.positions*3}));if(area==="drive")return Array.from({length:23},(_,i)=>({unit:i+1,title:`Calle ${String(i+1).padStart(2,"0")}`,total:15}));return ENVASE_STREETS.map(item=>({unit:item.id,title:`${item.sku} · Calle ${String(item.streetOrder).padStart(2,"0")}`,total:item.capacity}));}
+  function areaCells(area){return sources[area][0];}
+  function renderCards(area,title,warehouse){return <><section style={styles.touchIntro}><span>{warehouse}</span><h1>{title}</h1><p>Selecciona un bloque para revisar y editar sus posiciones.</p></section><div style={styles.touchRackOverview}>{cards(area).map(item=>{const assigned=Object.keys(areaCells(area)).filter(k=>k.startsWith(`${item.unit}-`)&&String(areaCells(area)[k]||"").trim()).length;const free=Math.max(item.total-assigned,0);return <button key={item.unit} onClick={()=>openGroup(area,item.unit)} style={styles.touchRackCard}><strong style={styles.touchRackCardTitle}>{item.title}</strong><div style={styles.touchRackMetrics}><span><small>Total de posiciones</small><b>{item.total}</b></span><span><small>Posiciones asignadas</small><b>{assigned}</b></span><span><small>Posiciones libres</small><b style={free?styles.touchRackFreeValue:styles.touchRackFullValue}>{free}</b></span></div><b style={styles.touchRackOpen}>Abrir ›</b></button>;})}</div></>}
+  function renderDetail(area){const d=activeDetail;return <><div style={styles.touchRackTopbar}><button onClick={()=>{setView(area);setSelectedGroup(null);setSelectedCell(null);}} style={styles.touchBackButton}>‹ Vista general</button><div><span>{area==="envases"?"BODEGA 60 · ENVASES":`BODEGA 70 · ${area==="racks"?"RACKS SELECTIVOS":"DRIVE IN"}`}</span><strong>{d.title}</strong></div></div><section style={styles.touchRackWindow}><div style={styles.touchRackColumnHeaders}><span>Nivel</span>{visible.map(pos=><strong key={pos}>P{pos}</strong>)}</div>{d.levels.map(level=><div key={level} style={styles.touchRackRow}><strong>N{level}</strong>{visible.map(pos=>{const key=`${selectedGroup}-${level}-${pos}`;const blocked=d.blocked?.includes(`${level}-${pos}`);const sku=String(d.cells[key]||"").trim();const desc=sku?touchProducts[sku]?.description||"Sin descripción":"Agregar SKU";const active=selectedCell?.area===area&&selectedCell.unit===selectedGroup&&selectedCell.level===level&&selectedCell.position===pos;return blocked?<div key={key} style={styles.touchBlockedCell}>NO DISP.</div>:<button data-touch-cell="true" key={key} onClick={()=>selectCell(area,selectedGroup,level,pos)} style={{...styles.touchRackCell,...(active?styles.touchRackCellActive:{}),...(sku?styles.touchRackCellFilled:{})}}><span>{sku||"VACÍO"}</span><small style={styles.touchRackCellDescription}>{desc}</small></button>;})}</div>)}</section><div style={styles.touchRackPager}><button onClick={()=>page(-1,d.max)} disabled={pageStart===1}>‹ Anteriores</button><span>P{visible[0]}{visible[1]?`–P${visible[1]}`:""} de {d.max}</span><button onClick={()=>page(1,d.max)} disabled={visible.includes(d.max)}>Siguientes ›</button></div></>}
+  return <div style={styles.touchShell} onMouseDown={closeEditor}><header style={styles.touchHeader}><img src={`${import.meta.env.BASE_URL}demaria-logo.png`} alt="Demaria" style={styles.touchLogo}/><div style={styles.touchUser}><strong>{profile.display_name||"Usuario"}</strong><span>{profile.role==="admin"?"Administrador":"Editor"}</span></div><button onClick={onExit} style={styles.touchHeaderButton}>Escritorio</button><button onClick={onSignOut} style={styles.touchHeaderButton}>Salir</button></header><main style={styles.touchMain}>{view==="racks"&&renderCards("racks","Racks Selectivos","BODEGA 70")}{view==="drive"&&renderCards("drive","Racks Drive In","BODEGA 70")}{view==="envases"&&renderCards("envases","Envases","BODEGA 60")}{view.endsWith("Detail")&&activeDetail&&renderDetail(areaFromView)}{view==="search"&&<><section style={styles.touchIntro}><span>CONSULTA RÁPIDA</span><h1>Buscar SKU</h1></section><form onSubmit={search} style={styles.touchSearchCard}><input inputMode="numeric" maxLength={8} value={searchSku} onChange={e=>{setSearchSku(e.target.value.replace(/\D/g,""));setSearchProduct(null);}} placeholder="SKU de 8 dígitos" style={styles.touchSkuInput}/><button style={styles.touchSaveButton}>Buscar</button></form>{error&&<div style={styles.touchError}>{error}</div>}{searchProduct&&<section style={styles.touchSearchResult}><span>SKU {searchProduct.sku}</span><h2>{searchProduct.description}</h2><p>Stock {formatNumber(searchProduct.stock)} · Palletizado {formatNumber(searchProduct.units_per_pallet)}</p><strong>{searchLocations.length} posiciones</strong></section>}<div style={styles.touchLocationList}>{searchLocations.map((item,i)=><button key={i} onClick={()=>openLocation(item)} style={styles.touchLocationResult}><span>{item.area==="racks"?"Racks Selectivos":item.area==="drive"?"Drive In":"Envases"}</span><strong>{touchLocationLabel(item)}</strong><b>Editar ›</b></button>)}</div></>}</main>{selectedCell&&<section data-touch-editor="true" style={styles.touchBottomSheet}><div style={styles.touchSheetHandle}/><div style={styles.touchSheetHeader}><div><span>{selectedCell.area.toUpperCase()}</span><strong>{touchLocationLabel(selectedCell)}</strong></div><button onClick={()=>setSelectedCell(null)}>×</button></div><label style={styles.touchField}>SKU<input autoFocus inputMode="numeric" maxLength={8} value={skuDraft} onChange={e=>setSkuDraft(e.target.value.replace(/\D/g,""))} style={styles.touchSkuInput}/></label><div style={styles.touchProductDetail}><span>Producto actual</span><strong>{currentProduct?.description||(currentSku?"SKU sin descripción":"Posición vacía")}</strong>{currentProduct&&<small>Stock {formatNumber(currentProduct.stock)} · Palletizado {formatNumber(currentProduct.units_per_pallet)}</small>}</div>{error&&<div style={styles.touchError}>{error}</div>}{message&&<div style={styles.touchSuccess}>{message}</div>}<div style={styles.touchActions}><button onClick={saveCell} style={styles.touchSaveButton}>Guardar / modificar</button><button onClick={clearCell} disabled={!currentSku} style={styles.touchClearButton}>Borrar SKU</button></div></section>}<nav style={styles.touchBottomNav}><button onClick={()=>{setView("racks");setSelectedCell(null);}} style={view.startsWith("racks")?styles.touchNavActive:styles.touchNavButton}>▦<small>Racks</small></button><button onClick={()=>{setView("drive");setSelectedCell(null);}} style={view.startsWith("drive")?styles.touchNavActive:styles.touchNavButton}>≡<small>Drive In</small></button><button onClick={()=>{setView("envases");setSelectedCell(null);}} style={view.startsWith("envases")?styles.touchNavActive:styles.touchNavButton}>□<small>Envases</small></button><button onClick={()=>{setView("search");setSelectedCell(null);}} style={view==="search"?styles.touchNavActive:styles.touchNavButton}>⌕<small>Buscar</small></button></nav></div>;
 }
-function TouchSelect({ label, value, onChange, max }) { return <label style={styles.touchField}>{label}<select value={value} onChange={(event)=>onChange(Number(event.target.value))} style={styles.touchSelect}>{Array.from({length:max},(_,index)=>index+1).map((item)=><option key={item}>{item}</option>)}</select></label>; }
-function touchLocationLabel(item) { return item.area === "racks" ? `Rack ${item.unit} · Nivel ${item.level} · P${item.position}` : `Calle ${String(item.unit).padStart(2,"0")} · Nivel ${item.level} · P${item.position}`; }
+function mapLoc(area,key){const[u,l,p]=key.split("-").map(Number);return{area,unit:u,level:l,position:p};}
+function touchLocationLabel(item){return item.area==="racks"?`Rack ${item.unit} · N${item.level} · P${item.position}`:item.area==="drive"?`Calle ${String(item.unit).padStart(2,"0")} · N${item.level} · P${item.position}`:`Envases · Calle ${String(item.unit).padStart(2,"0")} · N${item.level} · P${item.position}`;}
+
 
 
 
@@ -882,7 +828,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V8.1.1 descripciones y métricas</span>
+        <span style={styles.status}>V8.2 Drive In y Envases táctiles</span>
       </div>
       {children}
     </section>
@@ -2290,6 +2236,7 @@ const styles = {
     touchRackRow: { display: "grid", gridTemplateColumns: "52px repeat(2,minmax(0,1fr))", gap: 6, alignItems: "stretch" },
     touchRackCell: { minHeight: 98, padding: 8, display: "grid", placeItems: "center", gap: 4, border: `2px solid ${COLORS.border}`, borderRadius: 11, background: "#F8FAFC", color: COLORS.muted, fontSize: 12, fontWeight: 850 },
     touchRackCellFilled: { background: "#E7FBFB", color: COLORS.text, borderColor: COLORS.turquoise },
+    touchBlockedCell: { minHeight: 98, display: "grid", placeItems: "center", border: "2px dashed #98A2B3", borderRadius: 11, background: "#EAECF0", color: "#667085", fontSize: 10, fontWeight: 900 },
     touchRackCellDescription: { maxWidth: "100%", minHeight: 30, display: "-webkit-box", overflow: "hidden", color: COLORS.muted, fontSize: 10, lineHeight: 1.35, WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textOverflow: "ellipsis" },
     touchRackCellActive: { borderColor: "#F59E0B", background: "#FFF3BF", boxShadow: "0 0 0 3px rgba(245,158,11,.22)" },
     touchRackPager: { display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 8 },
@@ -2304,7 +2251,7 @@ const styles = {
     touchAreaActive: { padding: 13, border: 0, borderRadius: 10, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 14, fontWeight: 900, boxShadow: "0 5px 14px rgba(0,193,194,.25)" },
     touchLocationCard: { padding: 15, display: "grid", gap: 13, border: `1px solid ${COLORS.border}`, borderRadius: 17, background: "#FFFFFF", boxShadow: "0 8px 22px rgba(16,24,40,.07)" },
     touchLocationTitle: { display: "grid", gap: 4 },
-    touchSelectorGrid: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9 },
+    touchSelectorGrid: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 9 },
     touchField: { display: "grid", gap: 6, color: COLORS.muted, fontSize: 11, fontWeight: 850 },
     touchSelect: { width: "100%", minHeight: 50, padding: "0 11px", border: `2px solid ${COLORS.border}`, borderRadius: 11, background: "#FFFFFF", color: COLORS.text, fontSize: 18, fontWeight: 850 },
     touchPositionNavigator: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 },
