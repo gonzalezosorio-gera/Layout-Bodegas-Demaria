@@ -953,7 +953,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V8.6 diseño de Racks Selectivos</span>
+        <span style={styles.status}>V8.8 selección y eliminación masiva</span>
       </div>
       {children}
     </section>
@@ -2074,8 +2074,11 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
   const [importPreview, setImportPreview] = useState(null);
   const [importType, setImportType] = useState("");
   const [importing, setImporting] = useState(false);
+  const [exportingMaster, setExportingMaster] = useState(false);
   const [history, setHistory] = useState([]);
   const [quickEdit, setQuickEdit] = useState(null);
+  const [selectedMasterSkus, setSelectedMasterSkus] = useState([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const locationsBySku = {};
   Object.entries(rackCells).forEach(([key, sku]) => {
@@ -2163,6 +2166,36 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
     setSaving(false);
   }
 
+  function toggleMasterSku(sku) {
+    if (!isAdmin) return;
+    setSelectedMasterSkus((current) => current.includes(sku) ? current.filter((item) => item !== sku) : [...current, sku]);
+  }
+  async function bulkDeleteProducts() {
+    if (!isAdmin || !selectedMasterSkus.length || bulkDeleting) return;
+    setError(""); setMessage("");
+    const selectedRows = products.map(enriched).filter((item) => selectedMasterSkus.includes(item.sku));
+    const protectedRows = selectedRows.filter((item) => item.assigned > 0);
+    const deletableRows = selectedRows.filter((item) => item.assigned === 0);
+    if (protectedRows.length) {
+      const preview = protectedRows.slice(0, 8).map((item) => item.sku).join(", ");
+      setError(`${protectedRows.length} SKU no pueden eliminarse porque tienen posiciones asignadas: ${preview}${protectedRows.length > 8 ? "…" : ""}. Libera sus ubicaciones antes de eliminarlos.`);
+      if (!deletableRows.length) return;
+    }
+    const withStock = deletableRows.filter((item) => item.stock > 0);
+    const warning = withStock.length ? `\n\nAdvertencia: ${withStock.length} SKU todavía tienen stock mayor que cero.` : "";
+    if (window.prompt(`Se eliminarán permanentemente ${deletableRows.length} SKU sin posiciones asignadas.${warning}\n\nEscribe ELIMINAR para confirmar:`) !== "ELIMINAR") return;
+    setBulkDeleting(true);
+    const deleted = [], failed = [];
+    for (let index = 0; index < deletableRows.length; index += 100) {
+      const batch = deletableRows.slice(index, index + 100).map((item) => item.sku);
+      const result = await supabase.from("products").delete().in("sku", batch).select("sku");
+      if (result.error) failed.push(...batch); else deleted.push(...(result.data || []).map((item) => item.sku));
+    }
+    if (deleted.length) { setProducts((current) => current.filter((item) => !deleted.includes(item.sku))); setSelectedMasterSkus((current) => current.filter((sku) => !deleted.includes(sku))); setMessage(`${deleted.length} SKU fueron eliminados del Maestro.`); }
+    if (failed.length) setError(`${failed.length} SKU no pudieron eliminarse. Revisa dependencias o permisos.`);
+    setBulkDeleting(false);
+  }
+
   async function deleteProduct(sku) {
     if (!isAdmin || !window.confirm(`¿Eliminar el producto ${sku}?`)) return;
     setError(""); setMessage("");
@@ -2180,6 +2213,44 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
       const values = line.split(delimiter).map((value) => value.trim().replace(/^"|"$/g, ""));
       return { rowNumber: index + 2, data: Object.fromEntries(headers.map((header, position) => [header, values[position] ?? ""])) };
     });
+  }
+
+  async function downloadCurrentMaster() {
+    if (!isAdmin || exportingMaster) return;
+    setExportingMaster(true); setError(""); setMessage("");
+    const result = await supabase.from("products").select("sku, description, stock, units_per_pallet, observation, updated_at").order("sku");
+    if (result.error) { setError(result.error.message); setExportingMaster(false); return; }
+    const freshRows = (result.data || []).map(enriched);
+    const headers = ["SKU", "Descripción", "Stock", "Cant./Pallet", "Pallets Eq.", "Posiciones asignadas", "Posiciones libres", "Diferencia", "Ubicaciones", "Observación", "Última actualización"];
+    const csvEscape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const lines = [headers.map(csvEscape).join(";")];
+    freshRows.forEach((item) => {
+      const free = item.units > 0 ? Math.max(item.assigned - Math.ceil(item.pallets), 0) : "";
+      const locations = item.locations.length ? summarizeLocations(item.locations).map((group) => `${group.title}: ${group.count} pos. (${group.details}; ${group.levels})`).join(" | ") : "Sin ubicación";
+      lines.push([
+        item.sku,
+        item.description || "",
+        item.stock,
+        item.units,
+        item.units > 0 ? item.pallets.toFixed(2).replace(".", ",") : "",
+        item.assigned,
+        free,
+        item.units > 0 ? item.difference.toFixed(2).replace(".", ",") : "",
+        locations,
+        item.observation || "",
+        item.updated_at ? new Date(item.updated_at).toLocaleString("es-CL") : "",
+      ].map(csvEscape).join(";"));
+    });
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}-${String(now.getMinutes()).padStart(2,"0")}`;
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Maestro_Productos_Demaria_${stamp}.csv`;
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+    setMessage(`Maestro descargado con ${freshRows.length} productos y datos actualizados.`);
+    setExportingMaster(false);
   }
 
   async function readImportFile(event, type) {
@@ -2284,6 +2355,9 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
     return searchMatch && statusMatch;
   });
 
+  const visibleMasterSkus = rows.map((item) => item.sku);
+  const allVisibleSelected = visibleMasterSkus.length > 0 && visibleMasterSkus.every((sku) => selectedMasterSkus.includes(sku));
+  function toggleAllVisibleProducts() { if (!isAdmin) return; setSelectedMasterSkus((current) => allVisibleSelected ? current.filter((sku) => !visibleMasterSkus.includes(sku)) : [...new Set([...current, ...visibleMasterSkus])]); }
   const summary = products.map(enriched);
   const deficitCount = summary.filter((item) => item.difference < -0.01).length;
   const unlocatedCount = summary.filter((item) => item.assigned === 0).length;
@@ -2302,9 +2376,12 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
         <option value="all">Todos los estados</option><option value="deficit">Déficit de posiciones</option><option value="balanced">Equilibrados</option><option value="surplus">Exceso de posiciones</option><option value="unlocated">Sin ubicación</option>
       </select>
       <button type="button" onClick={loadProducts} style={styles.selectionButton}>Actualizar</button>
+      {isAdmin && <button type="button" onClick={downloadCurrentMaster} disabled={exportingMaster} style={styles.exportMasterButton}>{exportingMaster ? "Preparando descarga..." : "Descargar Maestro actualizado"}</button>}
+      {isAdmin && selectedMasterSkus.length > 0 && <button type="button" onClick={bulkDeleteProducts} disabled={bulkDeleting} style={styles.bulkDeleteButton}>{bulkDeleting ? "Eliminando..." : `Eliminar seleccionados (${selectedMasterSkus.length})`}</button>}
       {canEdit && <><label style={styles.importButton}>Importar Maestro CSV<input type="file" accept=".csv,.txt" hidden onChange={(event) => readImportFile(event, "products")} /></label><label style={styles.importButtonStock}>Actualizar Stock CSV<input type="file" accept=".csv,.txt" hidden onChange={(event) => readImportFile(event, "stock")} /></label></>}
     </div>
 
+    {isAdmin && <div style={styles.masterSelectionBar}><span><b>{selectedMasterSkus.length}</b> SKU seleccionados</span><button type="button" onClick={() => setSelectedMasterSkus([])} disabled={!selectedMasterSkus.length} style={styles.actionSecondary}>Limpiar selección</button><small>Solo se eliminarán SKU sin posiciones asignadas. La acción es permanente.</small></div>}
     {importPreview && <div style={styles.importPreview}><div><strong>{importPreview.completed ? "Resultado de importación" : importType === "products" ? "Vista previa Maestro" : "Vista previa Stock"}</strong><span>{importPreview.fileName}</span></div><div style={styles.importStats}><span>{importPreview.total} filas</span>{importPreview.completed ? <span>{importPreview.success} actualizadas</span> : <span>{importPreview.valid.length} válidas</span>}<span>{importPreview.errors.length} observaciones</span></div>{importPreview.errors.length > 0 && <details><summary>Ver observaciones</summary><div style={styles.importErrors}>{importPreview.errors.slice(0,50).map((item,index) => <span key={`${item.rowNumber}-${index}`}>{item.rowNumber ? `Fila ${item.rowNumber}: ` : ""}{item.reason}</span>)}</div></details>}<div style={styles.actionGroup}>{!importPreview.completed && <button type="button" disabled={importing || !importPreview.valid.length} onClick={confirmImport} style={styles.actionPrimary}>{importing ? "Importando..." : "Confirmar importación"}</button>}<button type="button" onClick={() => setImportPreview(null)} style={styles.actionSecondary}>{importPreview.completed ? "Cerrar" : "Cancelar"}</button></div></div>}
 
     {canEdit && <form onSubmit={(event) => saveProduct(event, draft, true)} style={styles.newProductForm}>
@@ -2319,10 +2396,11 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
 
     {error && <div style={styles.errorBannerInline}>{error}</div>}{message && <div style={styles.successBannerInline}>{message}</div>}
     {loading ? <LoadingPanel text="Cargando maestro..." /> : <div style={styles.masterTableWrap}><style>{`.master-v5 th{padding:10px 8px;background:#00C1C2;color:white;text-align:left;font-weight:900;white-space:nowrap}.master-v5 td{padding:9px 8px;border-bottom:1px solid #D8E0E7;vertical-align:top}`}</style><table className="master-v5" style={styles.masterTable}>
-      <thead><tr><th>SKU</th><th>Descripción</th><th>Stock</th><th>Cant./Pallet</th><th>Pallets Eq.</th><th>Posiciones</th><th>Diferencia</th><th>Ubicaciones</th><th>Observación</th>{canEdit && <th>Acciones</th>}</tr></thead>
+      <thead><tr>{isAdmin && <th style={styles.masterSelectColumn}><input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleProducts} aria-label="Seleccionar todos los productos visibles" /></th>}<th>SKU</th><th>Descripción</th><th>Stock</th><th>Cant./Pallet</th><th>Pallets Eq.</th><th>Posiciones</th><th>Diferencia</th><th>Ubicaciones</th><th>Observación</th>{canEdit && <th>Acciones</th>}</tr></thead>
       <tbody>{rows.map((item) => {
         const editing = editingSku === item.sku;
-        return <tr key={item.sku}>
+        return <tr key={item.sku} style={selectedMasterSkus.includes(item.sku) ? styles.masterSelectedRow : undefined}>
+          {isAdmin && <td style={styles.masterSelectColumn}><input type="checkbox" checked={selectedMasterSkus.includes(item.sku)} onChange={() => toggleMasterSku(item.sku)} aria-label={`Seleccionar SKU ${item.sku}`} /></td>}
           <td><strong>{item.sku}</strong></td>
           <td>{editing ? <input value={editDraft.description} onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })} style={styles.tableInput} /> : item.description || "—"}</td>
           <td onDoubleClick={() => canEdit && !editing && setQuickEdit({ sku: item.sku, field: "stock", value: item.stock })} style={canEdit ? styles.quickEditableCell : undefined}>{quickEdit?.sku === item.sku && quickEdit.field === "stock" ? <input autoFocus type="number" min="0" step="any" value={quickEdit.value} onChange={(event) => setQuickEdit({ ...quickEdit, value: event.target.value })} onBlur={saveQuickEdit} onKeyDown={(event) => { if (event.key === "Enter") saveQuickEdit(); if (event.key === "Escape") setQuickEdit(null); }} style={styles.tableInputSmall} /> : editing ? <input type="number" min="0" step="any" value={editDraft.stock} onChange={(e) => setEditDraft({ ...editDraft, stock: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.stock)}</td>
@@ -2334,7 +2412,7 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
           <td>{editing ? <input value={editDraft.observation} onChange={(e) => setEditDraft({ ...editDraft, observation: e.target.value })} style={styles.tableInput} /> : item.observation || "—"}</td>
           {canEdit && <td><div style={styles.actionGroup}>{editing ? <><button type="button" onClick={(event) => saveProduct(event, { ...editDraft, sku: item.sku }, false)} style={styles.actionPrimary}>Guardar</button><button type="button" onClick={() => setEditingSku("")} style={styles.actionSecondary}>Cancelar</button></> : <><button type="button" onClick={() => onAssign(item.sku)} style={styles.assignmentButton}>Asignar posiciones</button><button type="button" onClick={() => { setEditingSku(item.sku); setEditDraft({ ...item, stock: item.stock, units_per_pallet: item.units }); }} style={styles.actionPrimary}>Editar</button>{isAdmin && <button type="button" onClick={() => deleteProduct(item.sku)} style={styles.actionDanger}>Eliminar</button>}</>}</div></td>}
         </tr>;
-      })}{!rows.length && <tr><td colSpan={canEdit ? 10 : 9} style={styles.emptyTable}>No hay productos que coincidan con el filtro.</td></tr>}</tbody>
+      })}{!rows.length && <tr><td colSpan={(canEdit ? 10 : 9) + (isAdmin ? 1 : 0)} style={styles.emptyTable}>No hay productos que coincidan con el filtro.</td></tr>}</tbody>
     </table></div>}
     {history.length > 0 && <details style={styles.historyPanel}><summary>Historial de importaciones</summary><div style={styles.historyList}>{history.map((item) => <div key={item.id} style={styles.historyRow}><strong>{item.import_type === "stock" ? "Stock" : "Maestro"}</strong><span>{item.file_name}</span><span>{new Date(item.created_at).toLocaleString("es-CL")}</span><span>{item.successful_rows}/{item.total_rows} correctas</span><span>{item.error_rows} errores</span></div>)}</div></details>}
   </Section>;
@@ -2627,7 +2705,12 @@ const styles = {
   multiSelectedCell: { position: "relative", zIndex: 2, background: "#BDF5F4", boxShadow: `inset 0 0 0 2px ${COLORS.turquoiseDark}` },
   assignmentBanner: { padding: "11px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "#DDF9F8", borderBottom: `1px solid ${COLORS.turquoise}` },
   assignmentButton: { padding: "7px 10px", border: 0, borderRadius: 8, background: COLORS.turquoiseDark, color: "#FFFFFF", fontSize: 10, fontWeight: 850, cursor: "pointer" },
-  importButton: { padding: "8px 11px", borderRadius: 8, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 11, fontWeight: 850, cursor: "pointer" },
+  bulkDeleteButton: { padding: "10px 14px", border: 0, borderRadius: 9, background: "#B42318", color: "#FFFFFF", fontSize: 11, fontWeight: 850, cursor: "pointer" },
+  masterSelectionBar: { marginBottom: 12, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #FDA29B", borderRadius: 10, background: "#FFF7F7", color: "#B42318", fontSize: 11 },
+  masterSelectColumn: { width: 38, minWidth: 38, textAlign: "center" },
+  masterSelectedRow: { boxShadow: "inset 4px 0 0 #F04438", background: "#FFF7F7" },
+  exportMasterButton: { padding: "10px 14px", border: 0, borderRadius: 9, background: "#172033", color: "#FFFFFF", fontSize: 11, fontWeight: 850, cursor: "pointer" },
+    importButton: { padding: "8px 11px", borderRadius: 8, background: COLORS.turquoise, color: "#FFFFFF", fontSize: 11, fontWeight: 850, cursor: "pointer" },
   importButtonStock: { padding: "8px 11px", borderRadius: 8, background: "#172033", color: "#FFFFFF", fontSize: 11, fontWeight: 850, cursor: "pointer" },
   importPreview: { marginBottom: 14, padding: 14, display: "grid", gap: 10, border: `1px solid ${COLORS.turquoise}`, borderRadius: 12, background: "#F7FFFF" },
   importStats: { display: "flex", gap: 8, flexWrap: "wrap" },
