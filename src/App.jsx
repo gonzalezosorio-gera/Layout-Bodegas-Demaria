@@ -135,6 +135,8 @@ export default function App() {
   const [touchMode, setTouchMode] = useState(() => window.innerWidth <= 1024 && localStorage.getItem("demaria-desktop-mode") !== "on");
   const [focusLocation, setFocusLocation] = useState(null);
   const [rackCells, setRackCells] = useState({});
+  const [rackLayoutConfig, setRackLayoutConfig] = useState({});
+  const effectiveRacks = RACKS.map((rack) => ({ ...rack, positions: Number(rackLayoutConfig[rack.number]) || rack.positions }));
   const [driveCells, setDriveCells] = useState({});
   const [envaseCells, setEnvaseCells] = useState({});
   const [envaseLayoutConfig, setEnvaseLayoutConfig] = useState({});
@@ -197,7 +199,7 @@ export default function App() {
       setDataLoading(true);
       setAppError("");
 
-      const [profileResult, locationsResult, envaseConfigResult] = await Promise.all([
+      const [profileResult, locationsResult, envaseConfigResult, rackConfigResult] = await Promise.all([
         supabase.from("profiles").select("display_name, role, can_adjust_stock").eq("id", session.user.id).single(),
         supabase
           .from("warehouse_locations")
@@ -205,6 +207,7 @@ export default function App() {
           .in("warehouse", ["70", "60"])
           .in("area", ["racks_selectivos", "drive_in", "envases"]),
         supabase.from("envase_layout_config").select("street_id, footprints, levels, blocked_positions, sku, street_order, zone, is_custom, is_deleted"),
+        supabase.from("rack_layout_config").select("rack_number, positions"),
       ]);
 
       if (cancelled) return;
@@ -212,6 +215,8 @@ export default function App() {
       if (locationsResult.error) setAppError(locationsResult.error.message);
       if (envaseConfigResult.error) setAppError(envaseConfigResult.error.message);
       if (!envaseConfigResult.error) setEnvaseLayoutConfig(Object.fromEntries((envaseConfigResult.data || []).map((row) => [row.street_id, { footprints: row.footprints, levels: row.levels, blocked: Array.isArray(row.blocked_positions) ? row.blocked_positions : [], sku: row.sku, streetOrder: row.street_order, zone: row.zone, isCustom: row.is_custom, isDeleted: row.is_deleted }])));
+      if (rackConfigResult.error) setAppError(rackConfigResult.error.message);
+      if (!rackConfigResult.error) setRackLayoutConfig(Object.fromEntries((rackConfigResult.data || []).map((row) => [row.rack_number, row.positions])));
 
       setProfile(profileResult.data ?? { display_name: session.user.email, role: "viewer" });
 
@@ -402,7 +407,7 @@ export default function App() {
   const initials = displayName.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const roleLabel = profile.role === "admin" ? "Administrador" : profile.role === "editor" ? "Editor" : profile.role === "operator" ? "Operador" : "Viewer";
   if (profile.role === "operator") return <OperatorMobile profile={profile} rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} envaseStreets={effectiveEnvaseStreets} onSignOut={() => supabase.auth.signOut()} desktopNotifications={desktopNotifications} onToggleNotifications={toggleDesktopNotifications} />;
-  if (canEdit && touchMode) return <TouchEditor profile={profile} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} envaseStreets={effectiveEnvaseStreets} onExit={() => { localStorage.setItem("demaria-desktop-mode", "on"); setTouchMode(false); }} onSignOut={() => supabase.auth.signOut()} />;
+  if (canEdit && touchMode) return <TouchEditor profile={profile} racks={effectiveRacks} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} envaseStreets={effectiveEnvaseStreets} onExit={() => { localStorage.setItem("demaria-desktop-mode", "on"); setTouchMode(false); }} onSignOut={() => supabase.auth.signOut()} />;
 
   return (
     <div
@@ -523,7 +528,7 @@ export default function App() {
         </aside>
         <main style={styles.mainWorkspace}>
           {mainTab === "home" && <HomeDashboard displayName={displayName} profile={profile} onNavigate={(target, sub) => { setMainTab(target); if (target === "b70") setSub70(sub); if (target === "b60") setSub60(sub); if (target === "virgo") setSubVirgo(sub); }} />}
-          {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} focusLocation={focusLocation} />}
+          {mainTab === "b70" && <Bodega70 activeTab={sub70} onTabChange={setSub70} racks={effectiveRacks} rackLayoutConfig={rackLayoutConfig} setRackLayoutConfig={setRackLayoutConfig} rackCells={rackCells} setRackCells={setRackCells} driveCells={driveCells} setDriveCells={setDriveCells} canEdit={canEdit} isAdmin={profile.role === "admin"} assignmentSku={assignmentSku} onCancelAssignment={() => setAssignmentSku("")} focusLocation={focusLocation} />}
           {mainTab === "b60" && <Bodega60 activeTab={sub60} onTabChange={setSub60} envaseCells={envaseCells} setEnvaseCells={setEnvaseCells} envaseLayoutConfig={envaseLayoutConfig} setEnvaseLayoutConfig={setEnvaseLayoutConfig} canEdit={canEdit} focusLocation={focusLocation} />}
           {mainTab === "virgo" && <BodegaVirgo2 activeTab={subVirgo} onTabChange={setSubVirgo} />}
           {mainTab === "master" && <MaestroProductos rackCells={rackCells} driveCells={driveCells} envaseCells={envaseCells} envaseStreets={effectiveEnvaseStreets} canEdit={canEdit} isAdmin={profile.role === "admin"} userId={session.user.id} onNavigate={(location) => { setFocusLocation(location); if (location.target === "envases") { setMainTab("b60"); setSub60("envases"); } else { setMainTab("b70"); setSub70(location.target); } }} onAssign={(sku) => { setAssignmentSku(sku); setMainTab("b70"); setSub70("racks"); }} />}
@@ -535,7 +540,7 @@ export default function App() {
   );
 }
 
-function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCells, envaseCells, setEnvaseCells, envaseStreets, onExit, onSignOut }) {
+function TouchEditor({ profile, racks, rackCells, setRackCells, driveCells, setDriveCells, envaseCells, setEnvaseCells, envaseStreets, onExit, onSignOut }) {
   const [view, setView] = useState("racks");
   const [selectedRack, setSelectedRack] = useState(null);
   const [columnStart, setColumnStart] = useState(1);
@@ -602,7 +607,7 @@ function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCel
   function selectCell(area, unit, level, position) { setSelectedCell({ area, unit, level, position }); setMessage(""); setError(""); }
   function closeEditor(event) { if (!event.target.closest?.('[data-touch-cell="true"]') && !event.target.closest?.('[data-touch-editor="true"]')) setSelectedCell(null); }
   function pageRack(direction) {
-    const rack = RACKS.find((item) => item.number === selectedRack);
+    const rack = racks.find((item) => item.number === selectedRack);
     const maxStart = Math.max(1, rack.positions - 1);
     let next = columnStart + direction * 2;
     if (next < 1) next = 1;
@@ -654,14 +659,14 @@ function TouchEditor({ profile, rackCells, setRackCells, driveCells, setDriveCel
   ] : [];
   function openSearchLocation(item) { if (item.area === "racks") { selectRack(item.unit); setColumnStart(Math.floor((item.position - 1) / 2) * 2 + 1); } else { setDriveStreet(item.unit); setDriveLevel(item.level); setDriveDepth(item.position); setView("drive"); } setTimeout(() => selectCell(item.area,item.unit,item.level,item.position),0); }
 
-  const rack = RACKS.find((item) => item.number === selectedRack);
+  const rack = racks.find((item) => item.number === selectedRack);
   const visiblePositions = rack ? [columnStart, columnStart + 1].filter((position) => position <= rack.positions) : [];
   const levels = [3,2,1];
 
   return <div style={styles.touchShell} onMouseDown={closeEditor}>
     <header style={styles.touchHeader}><img src={`${import.meta.env.BASE_URL}demaria-logo.png`} alt="Demaria 1896" style={styles.touchLogo} /><div style={styles.touchUser}><strong>{profile.display_name || "Usuario"}</strong><span>{profile.role === "admin" ? "Administrador" : "Editor"}</span></div><button type="button" onClick={onExit} style={styles.touchHeaderButton}>Escritorio</button><button type="button" onClick={onSignOut} style={styles.touchHeaderButton}>Salir</button></header>
     <main style={styles.touchMain}>
-      {view === "racks" && <><section style={styles.touchIntro}><span>BODEGA 70</span><h1>Racks Selectivos</h1><p>Selecciona un rack para editar sus posiciones de dos columnas por pantalla.</p></section><div style={styles.touchRackOverview}>{RACKS.map((item) => { const total = item.positions * 3; const assigned = Object.keys(rackCells).filter((key) => key.startsWith(`${item.number}-`) && String(rackCells[key] || "").trim()).length; const free = Math.max(total - assigned, 0); return <button key={item.number} onClick={() => selectRack(item.number)} style={styles.touchRackCard}><strong style={styles.touchRackCardTitle}>Rack {item.number}</strong><div style={styles.touchRackMetrics}><span><small>Total de posiciones</small><b>{total}</b></span><span><small>Posiciones asignadas</small><b>{assigned}</b></span><span><small>Posiciones libres</small><b style={free > 0 ? styles.touchRackFreeValue : styles.touchRackFullValue}>{free}</b></span></div><b style={styles.touchRackOpen}>Abrir ›</b></button>; })}</div></>}
+      {view === "racks" && <><section style={styles.touchIntro}><span>BODEGA 70</span><h1>Racks Selectivos</h1><p>Selecciona un rack para editar sus posiciones de dos columnas por pantalla.</p></section><div style={styles.touchRackOverview}>{racks.map((item) => { const total = item.positions * 3; const assigned = Object.keys(rackCells).filter((key) => key.startsWith(`${item.number}-`) && String(rackCells[key] || "").trim()).length; const free = Math.max(total - assigned, 0); return <button key={item.number} onClick={() => selectRack(item.number)} style={styles.touchRackCard}><strong style={styles.touchRackCardTitle}>Rack {item.number}</strong><div style={styles.touchRackMetrics}><span><small>Total de posiciones</small><b>{total}</b></span><span><small>Posiciones asignadas</small><b>{assigned}</b></span><span><small>Posiciones libres</small><b style={free > 0 ? styles.touchRackFreeValue : styles.touchRackFullValue}>{free}</b></span></div><b style={styles.touchRackOpen}>Abrir ›</b></button>; })}</div></>}
       {view === "rackDetail" && rack && <><div style={styles.touchRackTopbar}><button type="button" onClick={() => { setView("racks"); setSelectedRack(null); setSelectedCell(null); }} style={styles.touchBackButton}>‹ Todos los racks</button><div><span>BODEGA 70 · RACKS SELECTIVOS</span><strong>Rack {rack.number}</strong></div></div><section style={styles.touchRackWindow}><div style={styles.touchRackColumnHeaders}><span>Nivel</span>{visiblePositions.map((pos) => <strong key={pos}>P{pos}</strong>)}</div>{levels.map((level) => <div key={level} style={styles.touchRackRow}><strong>N{level}</strong>{visiblePositions.map((pos) => { const key=`${rack.number}-${level}-${pos}`; const sku=String(rackCells[key]||"").trim(); const active=selectedCell?.area==="racks"&&selectedCell.unit===rack.number&&selectedCell.level===level&&selectedCell.position===pos; const description = sku ? touchProducts[sku]?.description || "Sin descripción" : "Agregar SKU"; return <button data-touch-cell="true" key={key} onClick={() => selectCell("racks",rack.number,level,pos)} style={{...styles.touchRackCell,...(active?styles.touchRackCellActive:{}),...(sku?styles.touchRackCellFilled:{})}}><span>{sku || "VACÍO"}</span><small style={styles.touchRackCellDescription}>{description}</small></button>; })}</div>)}</section><div style={styles.touchRackPager}><button onClick={() => pageRack(-1)} disabled={columnStart===1}>‹ Columnas anteriores</button><span>P{visiblePositions[0]}{visiblePositions[1] ? `–P${visiblePositions[1]}` : ""} de {rack.positions}</span><button onClick={() => pageRack(1)} disabled={visiblePositions.includes(rack.positions)}>Columnas siguientes ›</button></div></>}
       {view === "drive" && <><section style={styles.touchIntro}><span>BODEGA 70</span><h1>Drive In</h1><p>Selecciona calle, nivel y profundidad para editar.</p></section><section style={styles.touchLocationCard}><div style={styles.touchSelectorGrid}><TouchSelect label="Calle" value={driveStreet} onChange={setDriveStreet} max={23}/><TouchSelect label="Nivel" value={driveLevel} onChange={setDriveLevel} max={3}/><TouchSelect label="Profundidad" value={driveDepth} onChange={setDriveDepth} max={5}/></div><button data-touch-cell="true" onClick={() => selectCell("drive",driveStreet,driveLevel,driveDepth)} style={styles.touchDriveOpen}>Abrir Calle {String(driveStreet).padStart(2,"0")} · N{driveLevel} · P{driveDepth}</button></section></>}
       {view === "envases" && <><section style={styles.touchIntro}><span>BODEGA 60</span><h1>Envases</h1><p>Consulta la capacidad asignada y ajusta el stock en pallets.</p></section><div style={styles.touchEnvaseList}>{[...new Set(envaseStreets.map((street) => street.sku))].sort((a,b) => Number(a)-Number(b)).map((sku) => { const assigned = envasePositionsForSku(sku).length; const product = touchProducts[sku]; const stock = Number(product?.stock) || 0; const unitsPerPallet = Number(product?.units_per_pallet) || 0; const palletsEquivalent = unitsPerPallet > 0 ? stock / unitsPerPallet : 0; const occupied = Math.ceil(palletsEquivalent); const free = Math.max(assigned - occupied, 0); const utilization = assigned > 0 && unitsPerPallet > 0 ? palletsEquivalent / assigned * 100 : 0; const description = product?.description || "Sin descripción en el Maestro"; return <article key={sku} style={{ ...styles.touchEnvaseSkuCard, ...(utilization > 100 ? styles.overstockPanel : {}) }}><div style={styles.touchEnvaseSkuHead}><div><strong>{sku}</strong><p>{description}</p></div>{utilization > 100 ? <OverstockMark compact /> : <span>{utilization.toFixed(1)}%</span>}</div><div style={styles.touchEnvaseMetrics}><div><small>Posiciones asignadas</small><b>{assigned}</b></div><div><small>Stock</small><b>{formatNumber(stock)}</b></div><div><small>Pallets equivalentes</small><b>{unitsPerPallet > 0 ? palletsEquivalent.toFixed(2) : "—"}</b></div><div><small>Posiciones ocupadas</small><b>{unitsPerPallet > 0 ? occupied : "—"}</b></div><div><small>Posiciones libres</small><b style={free > 0 ? styles.touchRackFreeValue : styles.touchRackFullValue}>{unitsPerPallet > 0 ? free : "—"}</b></div><div><small>Palletizado</small><b>{unitsPerPallet > 0 ? formatNumber(unitsPerPallet) : "Sin registro"}</b></div></div><div style={styles.touchEnvaseAdjust}><button type="button" style={styles.touchEnvaseMinus} onClick={() => adjustEnvaseStock(sku,-1)} disabled={stock <= 0 || unitsPerPallet <= 0} aria-label={`Disminuir stock de ${sku}`}>−</button><label style={styles.touchEnvaseInputLabel}><span>Pallets</span><input style={styles.touchEnvaseInput} inputMode="numeric" value={envasePalletInputs[sku] || ""} onChange={(event) => setEnvasePalletInput(sku,event.target.value)} placeholder="1" /></label><button type="button" style={styles.touchEnvasePlus} onClick={() => adjustEnvaseStock(sku,1)} disabled={unitsPerPallet <= 0} aria-label={`Aumentar stock de ${sku}`}>+</button></div></article>; })}</div></>}
@@ -948,14 +953,14 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V8.5 capacidad unificada</span>
+        <span style={styles.status}>V8.6 diseño de Racks Selectivos</span>
       </div>
       {children}
     </section>
   );
 }
 
-function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells, setDriveCells, canEdit, assignmentSku, onCancelAssignment, focusLocation }) {
+function Bodega70({ activeTab, onTabChange, racks, rackLayoutConfig, setRackLayoutConfig, rackCells, setRackCells, driveCells, setDriveCells, canEdit, isAdmin, assignmentSku, onCancelAssignment, focusLocation }) {
   return (
     <Section title="Bodega 70" description="Racks selectivos y almacenamiento compacto Drive In.">
       <SubNav
@@ -963,7 +968,7 @@ function Bodega70({ activeTab, onTabChange, rackCells, setRackCells, driveCells,
         activeTab={activeTab}
         onTabChange={onTabChange}
       />
-      {activeTab === "racks" && <RacksSelectivos cells={rackCells} setCells={setRackCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} focusLocation={focusLocation} />}
+      {activeTab === "racks" && <RacksSelectivos racks={racks} rackLayoutConfig={rackLayoutConfig} setRackLayoutConfig={setRackLayoutConfig} cells={rackCells} setCells={setRackCells} canEdit={canEdit} isAdmin={isAdmin} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} focusLocation={focusLocation} />}
       {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} focusLocation={focusLocation} />}
         {activeTab === "altillo" && <Placeholder code="AL" title="Altillo" text="Área de almacenamiento en Altillo." />}
     </Section>
@@ -1236,11 +1241,32 @@ function DriveStreet({ street, cells, activeCell, setActiveCell, updateCell, sel
   );
 }
 
-function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssignment, focusLocation }) {
+function RacksSelectivos({ racks, rackLayoutConfig, setRackLayoutConfig, cells, setCells, canEdit, isAdmin, assignmentSku, onCancelAssignment, focusLocation }) {
   const [activeCell, setActiveCell] = useState("");
   const [selection, setSelection] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [detailPanelPosition, setDetailPanelPosition] = useState(null);
+  const [rackDesignMode, setRackDesignMode] = useState(false);
+  const [rackConfigSaving, setRackConfigSaving] = useState(false);
+
+  async function changeRackColumns(rack, direction) {
+    if (!isAdmin) return;
+    const nextPositions = rack.positions + direction;
+    if (nextPositions < 1 || nextPositions > 24) return;
+    if (direction < 0) {
+      const position = rack.positions;
+      const keys = [1,2,3].map((level) => `${rack.number}-${level}-${position}`);
+      const occupied = keys.filter((key) => String(cells[key] || "").trim());
+      if (occupied.length && !window.confirm(`La columna P${position} contiene ${occupied.length} SKU. ¿Eliminar la columna y liberar esas posiciones?`)) return;
+      setCells((current) => { const next = { ...current }; keys.forEach((key) => delete next[key]); return next; });
+    }
+    const previous = rackLayoutConfig[rack.number];
+    setRackLayoutConfig((current) => ({ ...current, [rack.number]: nextPositions }));
+    setRackConfigSaving(true);
+    const result = await supabase.from("rack_layout_config").upsert({ rack_number: rack.number, positions: nextPositions, updated_at: new Date().toISOString() }, { onConflict: "rack_number" });
+    if (result.error) { setRackLayoutConfig((current) => { const next = { ...current }; if (previous) next[rack.number] = previous; else delete next[rack.number]; return next; }); window.alert(result.error.message); }
+    setRackConfigSaving(false);
+  }
 
   function positionCellDetail(element) {
     if (!element) return;
@@ -1281,7 +1307,7 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
 
   function selectedRackKeys(currentSelection = selection) {
     if (!currentSelection) return [];
-    const rack = RACKS.find((item) => item.number === currentSelection.group);
+    const rack = racks.find((item) => item.number === currentSelection.group);
     if (!rack) return [];
     const bounds = selectionBounds(currentSelection);
     const keys = [];
@@ -1316,7 +1342,7 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
 
   function copySelection() {
     if (!selection) return;
-    const rack = RACKS.find((item) => item.number === selection.group);
+    const rack = racks.find((item) => item.number === selection.group);
     const bounds = selectionBounds(selection);
     const text = [];
     for (let row = bounds.rowStart; row <= bounds.rowEnd; row += 1) {
@@ -1331,7 +1357,7 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
 
   function pasteSelection(text) {
     if (!canEdit || !selection) return;
-    const rack = RACKS.find((item) => item.number === selection.group);
+    const rack = racks.find((item) => item.number === selection.group);
     const rows = text.replace(/\r/g, "").split("\n").filter((row, index, all) => row || index < all.length - 1).map((row) => row.split("\t"));
     const bounds = selectionBounds(selection);
     const isSingleValue = rows.length === 1 && rows[0].length === 1;
@@ -1399,7 +1425,7 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
           <h3 style={styles.areaTitle}>Plano completo de Racks Selectivos</h3>
           <p style={styles.areaDescription}>Arrastra sobre las celdas para seleccionar un bloque; usa Ctrl/Cmd+C, Ctrl/Cmd+V o Supr.</p>
         </div>
-        <div style={styles.selectionTools}>
+        <div style={styles.selectionTools}>{isAdmin && <button type="button" onClick={() => { setRackDesignMode((value) => !value); setSelection(null); setActiveCell(""); }} style={rackDesignMode ? styles.actionPrimary : styles.actionSecondary}>{rackDesignMode ? "Finalizar diseño" : "Diseñar racks"}</button>}{rackConfigSaving && <span style={styles.mutedText}>Guardando diseño...</span>}
           <span style={styles.summaryBadge}>Selección múltiple</span>
           <button type="button" onClick={copySelection} style={styles.selectionButton}>Copiar</button>
           <button type="button" onClick={clearSelection} style={styles.selectionButtonDanger}>Borrar selección</button>
@@ -1409,7 +1435,7 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
       <div style={styles.storageDetailAnchor}>
       <div style={styles.canvasScroller}>
         <div style={styles.warehouseCanvas}>
-          {RACKS.map((rack) => (
+          {racks.map((rack) => (
             <div key={rack.number} className={rack.className} style={{ ...styles.rackPlacement, ...rackPlacements[rack.className] }}>
               <WarehouseRack
                 rack={rack}
@@ -1424,6 +1450,9 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
                 canEdit={canEdit}
                 focusLocation={focusLocation}
                 positionCellDetail={positionCellDetail}
+                designMode={rackDesignMode}
+                onAddColumn={() => changeRackColumns(rack, 1)}
+                onRemoveColumn={() => changeRackColumns(rack, -1)}
               />
             </div>
           ))}
@@ -1435,13 +1464,13 @@ function RacksSelectivos({ cells, setCells, canEdit, assignmentSku, onCancelAssi
   );
 }
 
-function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit, focusLocation, positionCellDetail }) {
+function WarehouseRack({ rack, cells, activeCell, setActiveCell, updateCell, selection, setSelection, dragging, setDragging, canEdit, focusLocation, positionCellDetail, designMode, onAddColumn, onRemoveColumn }) {
   const positions = Array.from({ length: rack.positions }, (_, index) => index + 1);
   const levels = [3, 2, 1];
 
   return (
     <div id={`selective-rack-${rack.number}`} style={{ ...styles.warehouseRack, ...(focusLocation?.target === "racks" && focusLocation.unit === rack.number ? styles.focusedUnit : {}) }}>
-      <div style={styles.rackName}>RACK {rack.number}</div>
+      <div style={styles.rackName}><span>RACK {rack.number}</span>{designMode && <span style={styles.rackDesignControls}><button type="button" onClick={onRemoveColumn} disabled={rack.positions <= 1}>− Columna</button><b>{rack.positions} columnas · {rack.positions * 3} posiciones</b><button type="button" onClick={onAddColumn} disabled={rack.positions >= 24}>+ Columna</button></span>}</div>
       <div style={styles.rackMatrixWrap}>
         <div style={{ ...styles.rackMatrix, gridTemplateColumns: `repeat(${rack.positions}, minmax(0, 1fr))` }}>
           {positions.map((position) => <div key={`h-${position}`} style={styles.matrixPositionHeader}>P{position}</div>)}
@@ -2568,7 +2597,8 @@ const styles = {
   warehouseCanvas: { minWidth: 1080, display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoRows: "auto", rowGap: 22, alignItems: "start", padding: "4px 0 22px" },
   rackPlacement: { minWidth: 0 },
   warehouseRack: { width: "100%", display: "grid", gridTemplateColumns: "82px minmax(0, 1fr)", alignItems: "center" },
-  rackName: { paddingRight: 12, textAlign: "right", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 900, letterSpacing: ".03em", whiteSpace: "nowrap" },
+  rackDesignControls: { display: "flex", alignItems: "center", justifyContent: "center", gap: 7, flexWrap: "wrap" },
+    rackName: { paddingRight: 12, textAlign: "right", color: COLORS.turquoiseDark, fontSize: 12, fontWeight: 900, letterSpacing: ".03em", whiteSpace: "nowrap" },
   rackMatrixWrap: { width: "100%", display: "flex", alignItems: "stretch" },
   rackMatrix: { width: "calc(100% - 64px)", display: "grid", border: `2px solid ${COLORS.turquoiseDark}`, borderRadius: "12px 0 0 12px", overflow: "hidden", background: "#fff", boxShadow: "0 5px 16px rgba(0,154,155,.09)" },
   matrixPositionHeader: { height: 28, display: "grid", placeItems: "center", background: COLORS.turquoise, color: "#FFFFFF", borderRight: "1px solid rgba(255,255,255,.38)", borderBottom: `1px solid ${COLORS.turquoiseDark}`, fontSize: 11, fontWeight: 900 },
