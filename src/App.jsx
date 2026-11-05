@@ -506,6 +506,7 @@ export default function App() {
           <button type="button" onClick={() => setWarehouseMenuOpen((value) => !value)} style={styles.sideNavRoot}><span>▦</span><strong>Bodegas</strong><b>{warehouseMenuOpen ? "⌃" : "⌄"}</b></button>
           {warehouseMenuOpen && <div style={styles.sideTree}>
             <SidebarWarehouse title="Bodega 70" open={openWarehouse === "b70"} onToggle={() => setOpenWarehouse(openWarehouse === "b70" ? "" : "b70")}>
+              <SidebarLink active={mainTab === "b70" && sub70 === "layout"} onClick={() => { setMainTab("b70"); setSub70("layout"); }}>Layout Bodega 70</SidebarLink>
               <SidebarLink active={mainTab === "b70" && sub70 === "racks"} onClick={() => { setMainTab("b70"); setSub70("racks"); }}>Racks Selectivos</SidebarLink>
               <SidebarLink active={mainTab === "b70" && sub70 === "drive"} onClick={() => { setMainTab("b70"); setSub70("drive"); }}>Racks Drive In</SidebarLink>
               <SidebarLink active={mainTab === "b70" && sub70 === "altillo"} onClick={() => { setMainTab("b70"); setSub70("altillo"); }}>Altillo</SidebarLink>
@@ -953,7 +954,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V8.8 selección y eliminación masiva</span>
+        <span style={styles.status}>V8.9 Layout Bodega 70</span>
       </div>
       {children}
     </section>
@@ -964,7 +965,7 @@ function Bodega70({ activeTab, onTabChange, racks, rackLayoutConfig, setRackLayo
   return (
     <Section title="Bodega 70" description="Racks selectivos y almacenamiento compacto Drive In.">
       <SubNav
-        tabs={[{ id: "racks", label: "Racks Selectivos" }, { id: "drive", label: "Racks Drive In" }, { id: "altillo", label: "Altillo" }]}
+        tabs={[{ id: "layout", label: "Layout Bodega 70" }, { id: "racks", label: "Racks Selectivos" }, { id: "drive", label: "Racks Drive In" }, { id: "altillo", label: "Altillo" }]}
         activeTab={activeTab}
         onTabChange={onTabChange}
       />
@@ -973,6 +974,22 @@ function Bodega70({ activeTab, onTabChange, racks, rackLayoutConfig, setRackLayo
         {activeTab === "altillo" && <Placeholder code="AL" title="Altillo" text="Área de almacenamiento en Altillo." />}
     </Section>
   );
+}
+
+function Bodega70Overview({ racks, rackCells, driveCells }) {
+  const [selected, setSelected] = useState(null);
+  const [products, setProducts] = useState({});
+  useEffect(() => { const skus=[...new Set([...Object.values(rackCells),...Object.values(driveCells)].map(v=>String(v||"").trim()).filter(Boolean))]; if(!skus.length)return setProducts({}); let off=false; supabase.from("products").select("sku,description,stock").in("sku",skus).then(({data})=>{if(!off)setProducts(Object.fromEntries((data||[]).map(x=>[String(x.sku),x])));}); return()=>{off=true;}; },[rackCells,driveCells]);
+  const placements={1:[2,37,8,51],2:[13,38,6,40],3:[20,38,6,40],4:[29,38,6,31],5:[36,38,6,31],6:[45,38,6,31],7:[52,38,6,31],8:[61,38,6,31],9:[68,38,6,31],10:[77,38,6,31],11:[84,38,6,31]};
+  const getMetrics=(type,n)=>{const cells=type==="rack"?rackCells:driveCells;const total=type==="rack"?(racks.find(r=>r.number===n)?.positions||0)*3:15;const entries=Object.entries(cells).filter(([k,v])=>k.startsWith(`${n}-`)&&String(v||"").trim());const skus=[...new Set(entries.map(([,v])=>String(v).trim()))];return{total,occupied:entries.length,free:Math.max(total-entries.length,0),percent:total?entries.length/total*100:0,skus};};
+  const color=p=>p>=90?"#F04438":p>=75?"#FEC84B":p>=45?COLORS.turquoise:"#12B76A";
+  const detail=selected?getMetrics(selected.type,selected.number):null;
+  return <div style={styles.b70Shell}><div style={styles.b70Header}><div><h3 style={styles.areaTitle}>Layout Bodega 70</h3><p style={styles.areaDescription}>Mapa superior interactivo de Racks Selectivos y Drive In.</p></div><div style={styles.b70Legend}><span>□ Selectivos</span><span>■ Drive In</span><span>● Ocupación</span></div></div><div style={styles.b70Body}><div style={styles.b70Scroller}><div style={styles.b70Canvas}>
+    <div style={styles.b70Grid}/><div style={styles.b70Title}>BODEGA 70 · MAPA OPERACIONAL</div>
+    <div style={styles.b70DriveBand}>{Array.from({length:23},(_,i)=>i+1).map(n=>{const m=getMetrics("drive",n);return <button key={n} onClick={()=>setSelected({type:"drive",number:n})} style={{...styles.b70Drive,...(selected?.type==="drive"&&selected.number===n?styles.b70Selected:{})}}><b>{String(n).padStart(2,"0")}</b><i style={{...styles.b70Line,width:`${Math.min(m.percent,100)}%`,background:color(m.percent)}}/></button>;})}</div><span style={styles.b70DriveCaption}>DRIVE IN · 23 CALLES</span>
+    {racks.map(r=>{const m=getMetrics("rack",r.number),[l,t,w,h]=placements[r.number];return <button key={r.number} onClick={()=>setSelected({type:"rack",number:r.number})} style={{...styles.b70Rack,left:`${l}%`,top:`${t}%`,width:`${w}%`,height:`${h}%`,...(selected?.type==="rack"&&selected.number===r.number?styles.b70Selected:{})}}><em>R{r.number}</em><strong>RACK<br/>{r.number}</strong><small>{m.occupied}/{m.total}</small><i style={{...styles.b70VLine,height:`${Math.min(m.percent,100)}%`,background:color(m.percent)}}/></button>;})}
+    <div style={{...styles.b70Zone,left:"16%",top:"82%",width:"12%",height:"14%"}}>OFICINA</div><div style={{...styles.b70ZoneDark,left:"36%",top:"85%",width:"47%",height:"11%"}}>PAÑOL</div><div style={{...styles.b70ZoneDark,right:"1%",top:"14%",width:"6%",height:"79%",writingMode:"vertical-rl"}}>CANCHA</div>
+  </div></div>{selected?<aside style={styles.b70Panel}><div style={styles.b70PanelHead}><div><span>{selected.type==="rack"?"RACK SELECTIVO":"DRIVE IN"}</span><h3>{selected.type==="rack"?`Rack ${selected.number}`:`Calle ${String(selected.number).padStart(2,"0")}`}</h3></div><button onClick={()=>setSelected(null)}>×</button></div><div style={styles.b70Gauge}><i style={{width:`${Math.min(detail.percent,100)}%`,background:color(detail.percent)}}/></div><strong style={styles.b70Percent}>{detail.percent.toFixed(1)}% ocupación</strong><div style={styles.b70Metrics}><span><small>Totales</small><b>{detail.total}</b></span><span><small>Ocupadas</small><b>{detail.occupied}</b></span><span><small>Libres</small><b>{detail.free}</b></span><span><small>SKU</small><b>{detail.skus.length}</b></span></div><h4>Códigos almacenados</h4><div style={styles.b70SkuList}>{detail.skus.length?detail.skus.map(sku=>{const cells=selected.type==="rack"?rackCells:driveCells;const qty=Object.entries(cells).filter(([k,v])=>k.startsWith(`${selected.number}-`)&&String(v||"").trim()===sku).length;return <article key={sku}><strong>{sku}</strong><span>{products[sku]?.description||"Sin descripción"}</span><small>{qty} pos. · Stock {formatNumber(products[sku]?.stock)}</small></article>;}):<p>Sin SKU almacenados.</p>}</div></aside>:<aside style={styles.b70Empty}><strong>Selecciona una unidad</strong><p>Verás ocupación, posiciones libres y códigos.</p></aside>}</div></div>;
 }
 
 function selectionBounds(selection) {
@@ -2440,6 +2457,15 @@ const rackPlacements = {
 };
 
 const styles = {
+  b70Shell:{overflow:"hidden",border:`1px solid ${COLORS.border}`,borderRadius:18,background:"#fff"},
+  b70Header:{padding:16,display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap",borderBottom:`1px solid ${COLORS.border}`,background:"linear-gradient(135deg,#fff,#F2FFFF)"},
+  b70Legend:{display:"flex",gap:14,color:COLORS.muted,fontSize:10},b70Body:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 340px",minHeight:620},b70Scroller:{padding:14,overflow:"auto",background:"#E8EFF1"},
+  b70Canvas:{position:"relative",minWidth:920,aspectRatio:"1.55/1",overflow:"hidden",border:`2px solid ${COLORS.turquoiseDark}`,borderRadius:18,background:"linear-gradient(145deg,#EAF1F3,#D8E3E6)",boxShadow:"inset 0 0 40px rgba(7,31,42,.08)"},
+  b70Grid:{position:"absolute",inset:0,opacity:.18,backgroundImage:"linear-gradient(rgba(0,154,155,.45) 1px,transparent 1px),linear-gradient(90deg,rgba(0,154,155,.45) 1px,transparent 1px)",backgroundSize:"28px 28px"},b70Title:{position:"absolute",left:14,top:10,color:COLORS.turquoiseDark,fontSize:10,fontWeight:950,letterSpacing:".14em"},
+  b70DriveBand:{position:"absolute",left:"1%",right:"9%",top:"7%",height:"14%",display:"grid",gridTemplateColumns:"repeat(23,1fr)",gap:2},b70Drive:{position:"relative",overflow:"hidden",border:"1px solid #335165",borderRadius:5,background:"linear-gradient(180deg,#172033,#0B3B4A)",color:"#fff",fontSize:9,fontWeight:900,cursor:"pointer"},b70DriveCaption:{position:"absolute",left:"1%",top:"22%",fontSize:9,fontWeight:900},b70Line:{position:"absolute",left:0,bottom:0,height:5},
+  b70Rack:{position:"absolute",padding:3,display:"grid",placeItems:"center",border:`2px solid ${COLORS.turquoiseDark}`,borderRadius:8,background:"linear-gradient(180deg,#fff,#F6FFFF)",color:COLORS.text,cursor:"pointer",boxShadow:"0 8px 16px rgba(0,154,155,.12)"},b70VLine:{position:"absolute",right:0,bottom:0,width:5},b70Selected:{zIndex:5,transform:"scale(1.06)",borderColor:"#00E5E6",boxShadow:"0 0 0 4px rgba(0,193,194,.28),0 14px 25px rgba(7,31,42,.24)"},
+  b70Zone:{position:"absolute",display:"grid",placeItems:"center",border:`2px solid ${COLORS.text}`,borderRadius:8,background:"rgba(255,255,255,.92)",fontWeight:900},b70ZoneDark:{position:"absolute",display:"grid",placeItems:"center",borderRadius:8,background:"linear-gradient(135deg,#172033,#0B3B4A)",color:"#fff",fontSize:14,fontWeight:950,letterSpacing:".15em"},
+  b70Panel:{padding:18,display:"grid",alignContent:"start",gap:12,borderLeft:`1px solid ${COLORS.border}`},b70Empty:{padding:28,display:"grid",placeItems:"center",alignContent:"center",borderLeft:`1px solid ${COLORS.border}`,background:"#F7FFFF",color:COLORS.muted,textAlign:"center"},b70PanelHead:{display:"flex",justifyContent:"space-between"},b70Gauge:{height:10,overflow:"hidden",borderRadius:999,background:"#E4E7EC"},b70Percent:{color:COLORS.turquoiseDark,fontSize:18},b70Metrics:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8},b70SkuList:{display:"grid",gap:8,maxHeight:330,overflowY:"auto"},
   touchShell: { minHeight: "100vh", paddingBottom: 88, background: "#EEF3F5", color: COLORS.text },
     touchHeader: { position: "sticky", top: 0, zIndex: 30, padding: "10px 12px", display: "grid", gridTemplateColumns: "88px minmax(0,1fr) auto auto", alignItems: "center", gap: 8, background: "#FFFFFF", borderBottom: `1px solid ${COLORS.border}`, boxShadow: "0 6px 18px rgba(16,24,40,.08)" },
     touchLogo: { width: 84, height: 36, objectFit: "contain" },
