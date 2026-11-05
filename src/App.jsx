@@ -954,7 +954,7 @@ function Section({ title, description, children }) {
           <h2 style={styles.sectionTitle}>{title}</h2>
           <p style={styles.sectionDescription}>{description}</p>
         </div>
-        <span style={styles.status}>V8.9 Layout Bodega 70</span>
+        <span style={styles.status}>V8.9.1 Layout Bodega 70 corregido</span>
       </div>
       {children}
     </section>
@@ -969,6 +969,7 @@ function Bodega70({ activeTab, onTabChange, racks, rackLayoutConfig, setRackLayo
         activeTab={activeTab}
         onTabChange={onTabChange}
       />
+      {activeTab === "layout" && <Bodega70Overview racks={racks} rackCells={rackCells} driveCells={driveCells} />}
       {activeTab === "racks" && <RacksSelectivos racks={racks} rackLayoutConfig={rackLayoutConfig} setRackLayoutConfig={setRackLayoutConfig} cells={rackCells} setCells={setRackCells} canEdit={canEdit} isAdmin={isAdmin} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} focusLocation={focusLocation} />}
       {activeTab === "drive" && <DriveIn cells={driveCells} setCells={setDriveCells} canEdit={canEdit} assignmentSku={assignmentSku} onCancelAssignment={onCancelAssignment} focusLocation={focusLocation} />}
         {activeTab === "altillo" && <Placeholder code="AL" title="Altillo" text="Área de almacenamiento en Altillo." />}
