@@ -2279,12 +2279,104 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    const text = await file.text();
-    const source = parseDelimited(text);
-    const seen = new Set();
-    const valid = [];
-    const errors = [];
 
+    let fileText = "";
+    try {
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) fileText = new TextDecoder("utf-16le").decode(buffer);
+      else if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) fileText = new TextDecoder("utf-16be").decode(buffer);
+      else fileText = new TextDecoder("utf-8").decode(buffer);
+    } catch (decodeError) {
+      setError(`No se pudo leer el archivo: ${decodeError.message || decodeError}`);
+      return;
+    }
+
+    const normalizeHeader = (value) => String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const parseSapNumber = (value) => {
+      const cleaned = String(value ?? "").trim().replace(/\s/g, "");
+      if (!cleaned) return 0;
+      const normalized = cleaned.includes(",") ? cleaned.replace(/\./g, "").replace(",", ".") : cleaned.replace(/\./g, "");
+      return Number(normalized);
+    };
+    const lines = fileText.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n").filter((line) => line.trim());
+    const firstLine = lines[0] || "";
+    const delimiter = firstLine.includes("\t") ? "\t" : firstLine.includes(";") ? ";" : ",";
+    const splitLine = (line) => line.split(delimiter).map((value) => value.trim().replace(/^"|"$/g, ""));
+    const headers = splitLine(firstLine).map(normalizeHeader);
+    const sapMaterialIndex = headers.findIndex((header) => header === "material" || header === "sku");
+    const sapWarehouseIndex = headers.findIndex((header) => header === "alm" || header === "almacen" || header === "bodega");
+    const sapFreeIndex = headers.findIndex((header) => header.includes("libre_utilizacion"));
+    const sapQualityIndex = headers.findIndex((header) => header.includes("control_calidad"));
+    const isSapFile = type === "stock" && delimiter === "\t" && sapMaterialIndex >= 0 && sapWarehouseIndex >= 0 && sapFreeIndex >= 0 && sapQualityIndex >= 0;
+
+    const errors = [];
+    const valid = [];
+    let ignoredWrongWarehouse = 0;
+    let ignoredUnknownSku = 0;
+    let duplicateCorrectRows = 0;
+    let source = [];
+
+    if (isSapFile) {
+      const masterBySku = new Map(products.map((product) => [String(product.sku).trim(), String(product.sap_warehouse || "").trim().toUpperCase()]));
+      const matched = new Map();
+      source = lines.slice(1).map((line, index) => ({ rowNumber: index + 2, values: splitLine(line) }));
+
+      source.forEach(({ rowNumber, values }) => {
+        const sku = String(values[sapMaterialIndex] || "").trim();
+        const warehouse = String(values[sapWarehouseIndex] || "").trim().toUpperCase();
+        if (!sku) return;
+        if (!masterBySku.has(sku)) { ignoredUnknownSku++; return; }
+        const expectedWarehouse = masterBySku.get(sku);
+        if (!["V002", "V008", "V010"].includes(expectedWarehouse)) {
+          errors.push({ rowNumber, reason: `El SKU ${sku} no tiene un almacén SAP válido en el Maestro.` });
+          return;
+        }
+        if (warehouse !== expectedWarehouse) { ignoredWrongWarehouse++; return; }
+        if (matched.has(sku)) {
+          duplicateCorrectRows++;
+          errors.push({ rowNumber, reason: `SKU duplicado en su almacén asignado (${warehouse}): ${sku}. No se sumaron filas duplicadas.` });
+          return;
+        }
+        const freeStock = parseSapNumber(values[sapFreeIndex]);
+        const qualityStock = parseSapNumber(values[sapQualityIndex]);
+        if (!Number.isFinite(freeStock) || !Number.isFinite(qualityStock) || freeStock < 0 || qualityStock < 0) {
+          errors.push({ rowNumber, reason: `Cantidad inválida para ${sku} en ${warehouse}.` });
+          return;
+        }
+        const stock = freeStock + qualityStock;
+        matched.set(sku, true);
+        valid.push({ sku, stock, sap_warehouse: warehouse, free_stock: freeStock, quality_stock: qualityStock });
+      });
+
+      masterBySku.forEach((warehouse, sku) => {
+        if (!matched.has(sku)) errors.push({ rowNumber: 0, reason: `Falta el SKU ${sku} en su almacén asignado ${warehouse}.` });
+      });
+      valid.sort((a, b) => a.sku.localeCompare(b.sku));
+      const ready = errors.length === 0 && valid.length === products.length && products.length === 280;
+      setImportType("stock");
+      setImportPreview({
+        fileName: file.name,
+        total: source.length,
+        valid,
+        errors,
+        ignoredWrongWarehouse,
+        ignoredUnknownSku,
+        duplicateCorrectRows,
+        isSap: true,
+        ready,
+        expected: products.length,
+        warehouseSummary: ["V002", "V008", "V010"].map((warehouse) => ({
+          warehouse,
+          count: valid.filter((row) => row.sap_warehouse === warehouse).length,
+          stock: valid.filter((row) => row.sap_warehouse === warehouse).reduce((sum, row) => sum + row.stock, 0),
+        })),
+      });
+      return;
+    }
+
+    source = parseDelimited(fileText);
+    const seen = new Set();
     source.forEach(({ rowNumber, data }) => {
       const sku = String(data.sku || data.codigo || data.material || "").trim();
       if (!sku) { errors.push({ rowNumber, reason: "SKU vacío" }); return; }
@@ -2303,7 +2395,7 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
       }
     });
     setImportType(type);
-    setImportPreview({ fileName: file.name, total: source.length, valid, errors });
+    setImportPreview({ fileName: file.name, total: source.length, valid, errors, ready: errors.length === 0 });
   }
 
   async function confirmImport() {
@@ -2402,11 +2494,11 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
       <button type="button" onClick={loadProducts} style={styles.selectionButton}>Actualizar</button>
       {isAdmin && <button type="button" onClick={downloadCurrentMaster} disabled={exportingMaster} style={styles.exportMasterButton}>{exportingMaster ? "Preparando descarga..." : "Descargar Maestro actualizado"}</button>}
       {isAdmin && selectedMasterSkus.length > 0 && <button type="button" onClick={bulkDeleteProducts} disabled={bulkDeleting} style={styles.bulkDeleteButton}>{bulkDeleting ? "Eliminando..." : `Eliminar seleccionados (${selectedMasterSkus.length})`}</button>}
-      {canEdit && <><label style={styles.importButton}>Importar Maestro CSV<input type="file" accept=".csv,.txt" hidden onChange={(event) => readImportFile(event, "products")} /></label><label style={styles.importButtonStock}>Actualizar Stock CSV<input type="file" accept=".csv,.txt" hidden onChange={(event) => readImportFile(event, "stock")} /></label></>}
+      {canEdit && <><label style={styles.importButton}>Importar Maestro CSV<input type="file" accept=".csv,.txt" hidden onChange={(event) => readImportFile(event, "products")} /></label><label style={styles.importButtonStock}>Actualizar Stock SAP / CSV<input type="file" accept=".csv,.txt,.xls,.xlsx" hidden onChange={(event) => readImportFile(event, "stock")} /></label></>}
     </div>
 
     {isAdmin && <div style={styles.masterSelectionBar}><span><b>{selectedMasterSkus.length}</b> SKU seleccionados</span><button type="button" onClick={() => setSelectedMasterSkus([])} disabled={!selectedMasterSkus.length} style={styles.actionSecondary}>Limpiar selección</button><small>Solo se eliminarán SKU sin posiciones asignadas. La acción es permanente.</small></div>}
-    {importPreview && <div style={styles.importPreview}><div><strong>{importPreview.completed ? "Resultado de importación" : importType === "products" ? "Vista previa Maestro" : "Vista previa Stock"}</strong><span>{importPreview.fileName}</span></div><div style={styles.importStats}><span>{importPreview.total} filas</span>{importPreview.completed ? <span>{importPreview.success} actualizadas</span> : <span>{importPreview.valid.length} válidas</span>}<span>{importPreview.errors.length} observaciones</span></div>{importPreview.errors.length > 0 && <details><summary>Ver observaciones</summary><div style={styles.importErrors}>{importPreview.errors.slice(0,50).map((item,index) => <span key={`${item.rowNumber}-${index}`}>{item.rowNumber ? `Fila ${item.rowNumber}: ` : ""}{item.reason}</span>)}</div></details>}<div style={styles.actionGroup}>{!importPreview.completed && <button type="button" disabled={importing || !importPreview.valid.length} onClick={confirmImport} style={styles.actionPrimary}>{importing ? "Importando..." : "Confirmar importación"}</button>}<button type="button" onClick={() => setImportPreview(null)} style={styles.actionSecondary}>{importPreview.completed ? "Cerrar" : "Cancelar"}</button></div></div>}
+    {importPreview && <div style={styles.importPreview}><div><strong>{importPreview.completed ? "Resultado de importación" : importType === "products" ? "Vista previa Maestro" : "Vista previa Stock"}</strong><span>{importPreview.fileName}</span></div><div style={styles.importStats}><span>{importPreview.total} filas</span>{importPreview.completed ? <span>{importPreview.success} actualizadas</span> : <span>{importPreview.valid.length} válidas</span>}<span>{importPreview.errors.length} errores</span>{importPreview.isSap && <><span>{importPreview.ignoredWrongWarehouse} filas de otros almacenes ignoradas</span><span>{importPreview.ignoredUnknownSku} SKU ajenos ignorados</span></>}</div>{importPreview.isSap && <div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: "#EEF7FA", color: "#172033", fontSize: 12 }}><strong>Regla SAP:</strong> Stock = Libre utilización + En control de calidad. Las filas de almacenes distintos al asignado se ignoran; Bloqueado, Devoluciones y Trans./Trasl. no se consideran.{importPreview.ready ? <div style={{ marginTop: 5, color: "#087443", fontWeight: 800 }}>Validación completa: {importPreview.valid.length} de {importPreview.expected} SKU listos para actualizar.</div> : <div style={{ marginTop: 5, color: "#B42318", fontWeight: 800 }}>Carga bloqueada: debe existir exactamente un registro válido por cada SKU de su almacén asignado y no puede haber errores.</div>}</div>}{importPreview.isSap && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, fontSize: 11 }}>{importPreview.warehouseSummary?.map((item) => <span key={item.warehouse} style={{ padding: "5px 8px", border: "1px solid #D8E0E7", borderRadius: 6 }}><strong>{item.warehouse}:</strong> {item.count} SKU · {formatNumber(item.stock)} unidades</span>)}</div>}{importPreview.errors.length > 0 && <details><summary>Ver errores de validación</summary><div style={styles.importErrors}>{importPreview.errors.slice(0,50).map((item,index) => <span key={`${item.rowNumber}-${index}`}>{item.rowNumber ? `Fila ${item.rowNumber}: ` : ""}{item.reason}</span>)}</div></details>}<div style={styles.actionGroup}>{!importPreview.completed && <button type="button" disabled={importing || !importPreview.valid.length || importPreview.ready === false} onClick={confirmImport} style={styles.actionPrimary}>{importing ? "Importando..." : "Confirmar importación"}</button>}<button type="button" onClick={() => setImportPreview(null)} style={styles.actionSecondary}>{importPreview.completed ? "Cerrar" : "Cancelar"}</button></div></div>}
 
     {canEdit && <form onSubmit={(event) => saveProduct(event, draft, true)} style={styles.newProductForm}>
       <strong style={styles.formTitle}>Nuevo producto</strong>
