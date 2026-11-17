@@ -2078,7 +2078,7 @@ function summarizeLocations(locations) {
 }
 
 function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, canEdit, isAdmin, userId, onNavigate, onAssign }) {
-  const emptyDraft = { sku: "", description: "", stock: "", units_per_pallet: "", observation: "" };
+  const emptyDraft = { sku: "", description: "", stock: "", units_per_pallet: "", observation: "", sap_warehouse: "" };
   const [products, setProducts] = useState([]);
   const [draft, setDraft] = useState(emptyDraft);
   const [editingSku, setEditingSku] = useState("");
@@ -2128,7 +2128,7 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
 
   async function loadProducts() {
     setLoading(true); setError("");
-    const result = await supabase.from("products").select("sku, description, stock, units_per_pallet, observation, updated_at").order("sku");
+    const result = await supabase.from("products").select("sku, description, stock, units_per_pallet, observation, sap_warehouse, updated_at").order("sku");
     if (result.error) setError(result.error.message);
     else setProducts(result.data ?? []);
     const historyResult = await supabase.from("import_history").select("id, import_type, file_name, total_rows, successful_rows, error_rows, created_at").order("created_at", { ascending: false }).limit(10);
@@ -2162,7 +2162,9 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
     event.preventDefault();
     if (!canEdit) return;
     const sku = String(source.sku || "").trim();
+    const sapWarehouse = String(source.sap_warehouse || "").trim().toUpperCase();
     if (!sku) return setError("El SKU es obligatorio.");
+    if (!["V002", "V008", "V010"].includes(sapWarehouse)) return setError("Selecciona un almacén SAP válido: V002, V008 o V010.");
     setSaving(true); setError(""); setMessage("");
     const payload = {
       sku,
@@ -2170,10 +2172,11 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
       stock: Math.max(0, Number(source.stock) || 0),
       units_per_pallet: Math.max(0, Number(source.units_per_pallet) || 0),
       observation: String(source.observation || "").trim(),
+      sap_warehouse: sapWarehouse,
       updated_by: userId,
       updated_at: new Date().toISOString(),
     };
-    const result = await supabase.from("products").upsert(payload, { onConflict: "sku" }).select("sku, description, stock, units_per_pallet, observation, updated_at").single();
+    const result = await supabase.from("products").upsert(payload, { onConflict: "sku" }).select("sku, description, stock, units_per_pallet, observation, sap_warehouse, updated_at").single();
     if (result.error) setError(result.error.message);
     else {
       setProducts((current) => [...current.filter((item) => item.sku !== sku), result.data].sort((a,b) => a.sku.localeCompare(b.sku)));
@@ -2236,10 +2239,10 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
   async function downloadCurrentMaster() {
     if (!isAdmin || exportingMaster) return;
     setExportingMaster(true); setError(""); setMessage("");
-    const result = await supabase.from("products").select("sku, description, stock, units_per_pallet, observation, updated_at").order("sku");
+    const result = await supabase.from("products").select("sku, description, stock, units_per_pallet, observation, sap_warehouse, updated_at").order("sku");
     if (result.error) { setError(result.error.message); setExportingMaster(false); return; }
     const freshRows = (result.data || []).map(enriched);
-    const headers = ["SKU", "Descripción", "Stock", "Cant./Pallet", "Pallets Eq.", "Posiciones asignadas", "Posiciones libres", "Diferencia", "Ubicaciones", "Observación", "Última actualización"];
+    const headers = ["SKU", "Descripción", "Bodega", "Stock", "Cant./Pallet", "Pallets Eq.", "Posiciones asignadas", "Posiciones libres", "Diferencia", "Ubicaciones", "Observación", "Última actualización"];
     const csvEscape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const lines = [headers.map(csvEscape).join(";")];
     freshRows.forEach((item) => {
@@ -2248,6 +2251,7 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
       lines.push([
         item.sku,
         item.description || "",
+        item.sap_warehouse || "",
         item.stock,
         item.units,
         item.units > 0 ? item.pallets.toFixed(2).replace(".", ",") : "",
@@ -2288,8 +2292,10 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
       seen.add(sku);
       if (type === "products") {
         const units = Number(String(data.cantidad_pallet || data.cant_pallet || data.units_per_pallet || data.pallet || "0").replace(",", "."));
+        const sapWarehouse = String(data.bodega || data.almacen || data.sap_warehouse || data.almacen_sap || "").trim().toUpperCase();
+        if (!["V002", "V008", "V010"].includes(sapWarehouse)) { errors.push({ rowNumber, reason: `Almacén SAP inválido o ausente para ${sku}. Usa V002, V008 o V010.` }); return; }
         if (!Number.isFinite(units) || units < 0) { errors.push({ rowNumber, reason: `Cantidad por pallet inválida: ${sku}` }); return; }
-        valid.push({ sku, description: data.descripcion || data.description || "", units_per_pallet: units, observation: data.observacion || data.observation || "" });
+        valid.push({ sku, description: data.descripcion || data.description || "", sap_warehouse: sapWarehouse, units_per_pallet: units, observation: data.observacion || data.observation || "" });
       } else {
         const stock = Number(String(data.stock || data.stock_actual || data.cantidad || "").replace(/\./g, "").replace(",", "."));
         if (!Number.isFinite(stock) || stock < 0) { errors.push({ rowNumber, reason: `Stock inválido: ${sku}` }); return; }
@@ -2406,6 +2412,9 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
       <strong style={styles.formTitle}>Nuevo producto</strong>
       <input value={draft.sku} onChange={(event) => setDraft({ ...draft, sku: event.target.value })} placeholder="SKU" required style={styles.masterInput} />
       <input value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder="Descripción" style={styles.masterInputWide} />
+      <select value={draft.sap_warehouse} onChange={(event) => setDraft({ ...draft, sap_warehouse: event.target.value })} required style={styles.masterInput}>
+        <option value="">Almacén SAP</option><option value="V002">V002</option><option value="V008">V008</option><option value="V010">V010</option>
+      </select>
       <input type="number" min="0" step="any" value={draft.stock} onChange={(event) => setDraft({ ...draft, stock: event.target.value })} placeholder="Stock" style={styles.masterInput} />
       <input type="number" min="0" step="any" value={draft.units_per_pallet} onChange={(event) => setDraft({ ...draft, units_per_pallet: event.target.value })} placeholder="Cant./Pallet" style={styles.masterInput} />
       <input value={draft.observation} onChange={(event) => setDraft({ ...draft, observation: event.target.value })} placeholder="Observación" style={styles.masterInputWide} />
@@ -2414,13 +2423,14 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
 
     {error && <div style={styles.errorBannerInline}>{error}</div>}{message && <div style={styles.successBannerInline}>{message}</div>}
     {loading ? <LoadingPanel text="Cargando maestro..." /> : <div style={styles.masterTableWrap}><style>{`.master-v5 th{padding:10px 8px;background:#00C1C2;color:white;text-align:left;font-weight:900;white-space:nowrap}.master-v5 td{padding:9px 8px;border-bottom:1px solid #D8E0E7;vertical-align:top}`}</style><table className="master-v5" style={styles.masterTable}>
-      <thead><tr>{isAdmin && <th style={styles.masterSelectColumn}><input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleProducts} aria-label="Seleccionar todos los productos visibles" /></th>}<th>SKU</th><th>Descripción</th><th>Stock</th><th>Cant./Pallet</th><th>Pallets Eq.</th><th>Posiciones</th><th>Diferencia</th><th>Ubicaciones</th><th>Observación</th>{canEdit && <th>Acciones</th>}</tr></thead>
+      <thead><tr>{isAdmin && <th style={styles.masterSelectColumn}><input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleProducts} aria-label="Seleccionar todos los productos visibles" /></th>}<th>SKU</th><th>Descripción</th><th>Almacén SAP</th><th>Stock</th><th>Cant./Pallet</th><th>Pallets Eq.</th><th>Posiciones</th><th>Diferencia</th><th>Ubicaciones</th><th>Observación</th>{canEdit && <th>Acciones</th>}</tr></thead>
       <tbody>{rows.map((item) => {
         const editing = editingSku === item.sku;
         return <tr key={item.sku} style={selectedMasterSkus.includes(item.sku) ? styles.masterSelectedRow : undefined}>
           {isAdmin && <td style={styles.masterSelectColumn}><input type="checkbox" checked={selectedMasterSkus.includes(item.sku)} onChange={() => toggleMasterSku(item.sku)} aria-label={`Seleccionar SKU ${item.sku}`} /></td>}
           <td><strong>{item.sku}</strong></td>
           <td>{editing ? <input value={editDraft.description} onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })} style={styles.tableInput} /> : item.description || "—"}</td>
+          <td>{editing ? <select value={editDraft.sap_warehouse || ""} onChange={(e) => setEditDraft({ ...editDraft, sap_warehouse: e.target.value })} style={styles.tableInput}><option value="">Seleccionar</option><option value="V002">V002</option><option value="V008">V008</option><option value="V010">V010</option></select> : item.sap_warehouse || "—"}</td>
           <td onDoubleClick={() => canEdit && !editing && setQuickEdit({ sku: item.sku, field: "stock", value: item.stock })} style={canEdit ? styles.quickEditableCell : undefined}>{quickEdit?.sku === item.sku && quickEdit.field === "stock" ? <input autoFocus type="number" min="0" step="any" value={quickEdit.value} onChange={(event) => setQuickEdit({ ...quickEdit, value: event.target.value })} onBlur={saveQuickEdit} onKeyDown={(event) => { if (event.key === "Enter") saveQuickEdit(); if (event.key === "Escape") setQuickEdit(null); }} style={styles.tableInputSmall} /> : editing ? <input type="number" min="0" step="any" value={editDraft.stock} onChange={(e) => setEditDraft({ ...editDraft, stock: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.stock)}</td>
           <td onDoubleClick={() => canEdit && !editing && setQuickEdit({ sku: item.sku, field: "units_per_pallet", value: item.units })} style={canEdit ? styles.quickEditableCell : undefined}>{quickEdit?.sku === item.sku && quickEdit.field === "units_per_pallet" ? <input autoFocus type="number" min="0" step="any" value={quickEdit.value} onChange={(event) => setQuickEdit({ ...quickEdit, value: event.target.value })} onBlur={saveQuickEdit} onKeyDown={(event) => { if (event.key === "Enter") saveQuickEdit(); if (event.key === "Escape") setQuickEdit(null); }} style={styles.tableInputSmall} /> : editing ? <input type="number" min="0" step="any" value={editDraft.units_per_pallet} onChange={(e) => setEditDraft({ ...editDraft, units_per_pallet: e.target.value })} style={styles.tableInputSmall} /> : formatNumber(item.units)}</td>
           <td>{item.units > 0 ? item.pallets.toFixed(2) : "—"}</td>
