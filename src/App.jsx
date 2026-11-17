@@ -2299,16 +2299,23 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
       const normalized = cleaned.includes(",") ? cleaned.replace(/\./g, "").replace(",", ".") : cleaned.replace(/\./g, "");
       return Number(normalized);
     };
-    const lines = fileText.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n").filter((line) => line.trim());
-    const firstLine = lines[0] || "";
+    // SAP suele exportar XLS como texto UTF-16 tabulado, con una primera línea vacía
+    // y columnas auxiliares sin encabezado. Buscar la fila real de encabezados.
+    const lines = fileText.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
+    const splitLine = (line, delimiter = "\t") => line.split(delimiter).map((value) => value.trim().replace(/^"|"$/g, ""));
+    const headerLineIndex = lines.findIndex((line) => {
+      if (!line.includes("\t")) return false;
+      const candidate = splitLine(line).map(normalizeHeader);
+      return candidate.includes("material") && candidate.includes("alm") && candidate.some((header) => header.includes("libre_utilizacion")) && candidate.some((header) => header.includes("control_calidad"));
+    });
+    const firstLine = headerLineIndex >= 0 ? lines[headerLineIndex] : (lines.find((line) => line.trim()) || "");
     const delimiter = firstLine.includes("\t") ? "\t" : firstLine.includes(";") ? ";" : ",";
-    const splitLine = (line) => line.split(delimiter).map((value) => value.trim().replace(/^"|"$/g, ""));
-    const headers = splitLine(firstLine).map(normalizeHeader);
+    const headers = splitLine(firstLine, delimiter).map(normalizeHeader);
     const sapMaterialIndex = headers.findIndex((header) => header === "material" || header === "sku");
     const sapWarehouseIndex = headers.findIndex((header) => header === "alm" || header === "almacen" || header === "bodega");
     const sapFreeIndex = headers.findIndex((header) => header.includes("libre_utilizacion"));
     const sapQualityIndex = headers.findIndex((header) => header.includes("control_calidad"));
-    const isSapFile = type === "stock" && delimiter === "\t" && sapMaterialIndex >= 0 && sapWarehouseIndex >= 0 && sapFreeIndex >= 0 && sapQualityIndex >= 0;
+    const isSapFile = type === "stock" && delimiter === "\t" && headerLineIndex >= 0 && sapMaterialIndex >= 0 && sapWarehouseIndex >= 0 && sapFreeIndex >= 0 && sapQualityIndex >= 0;
 
     const errors = [];
     const valid = [];
@@ -2320,7 +2327,7 @@ function MaestroProductos({ rackCells, driveCells, envaseCells, envaseStreets, c
     if (isSapFile) {
       const masterBySku = new Map(products.map((product) => [String(product.sku).trim(), String(product.sap_warehouse || "").trim().toUpperCase()]));
       const matched = new Map();
-      source = lines.slice(1).map((line, index) => ({ rowNumber: index + 2, values: splitLine(line) }));
+      source = lines.slice(headerLineIndex + 1).map((line, index) => ({ rowNumber: headerLineIndex + index + 2, values: splitLine(line, delimiter) })).filter(({ values }) => values.some((value) => String(value || "").trim()));
 
       source.forEach(({ rowNumber, values }) => {
         const sku = String(values[sapMaterialIndex] || "").trim();
